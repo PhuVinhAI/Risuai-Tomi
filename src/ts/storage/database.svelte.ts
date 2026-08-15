@@ -10,6 +10,7 @@ import type { NAISettings } from '../process/models/nai';
 import { prebuiltNAIpresets, prebuiltPresets } from '../process/templates/templates';
 import { defaultColorScheme, type ColorScheme } from '../gui/colorscheme';
 import type { PromptItem, PromptSettings } from '../process/prompt';
+import type { DirectorWriterRole, DirectorWriterSettings, PacketSchemaRow } from '../process/directorWriter';
 import type { OobaChatCompletionRequestParams } from '../model/ooba';
 import { type HypaV3Settings, type HypaV3Preset, createHypaV3Preset } from '../process/memory/hypav3'
 import { normalizeTranslatorPresetState, type TranslatorPreset } from '../translator/presets'
@@ -435,6 +436,14 @@ export function setDatabase(data:Database){
     data.google.accessToken ??= ''
     data.google.projectId ??= ''
     data.genTime ??= 1
+    data.directorWriter ??= {
+        enabled: false,
+        directorPreset: '',
+        writerPreset: '',
+        rerollMode: 'writer',
+        logEnabled: false,
+        packetCacheSize: 40,
+    }
     data.promptSettings ??= {
         assistantPrefill: '',
         postEndInnerFormat: '',
@@ -1125,6 +1134,8 @@ export interface Database{
     enableCustomFlags: boolean
     googleClaudeTokenizing: boolean
     presetChain: string
+    /** Director–Writer pipeline. Presets are referenced by name, read as data, never applied. */
+    directorWriter?: DirectorWriterSettings
     legacyMediaFindings?:boolean
     geminiStream?:boolean
     assetMaxDifference:number
@@ -1581,6 +1592,12 @@ export interface groupChat{
 
 export interface botPreset{
     name?:string
+    /** Director/Writer role tick. The two are mutually exclusive by design. */
+    dwRole?: DirectorWriterRole|null
+    /** Role prompt, shown in preset settings only once a role is ticked. */
+    dwPrompt?: string
+    /** Packet schema. Only meaningful on a Director preset. */
+    dwSchema?: PacketSchemaRow[]
     apiType?: string
     openAIKey?: string
     localNetworkMode?: boolean
@@ -1871,6 +1888,13 @@ export interface MessageGenerationInfo{
         stage3?: number
         stage4?: number
     }
+    /** Director–Writer: the packet this reply was rendered from, plus its identity. */
+    directorPacket?: string
+    directorHistoryHash?: string
+    directorPresetName?: string
+    writerPresetName?: string
+    directorPromptHash?: string
+    directorSchemaHash?: string
 }
 
 export interface MessagePresetInfo{
@@ -2042,6 +2066,9 @@ export function saveCurrentPreset(){
     }
     const savedPreset:botPreset =  {
         name: pres[db.botPresetsId].name,
+        dwRole: pres[db.botPresetsId].dwRole ?? null,
+        dwPrompt: pres[db.botPresetsId].dwPrompt ?? '',
+        dwSchema: safeStructuredClone(pres[db.botPresetsId].dwSchema) ?? null,
         apiType: db.apiType,
         openAIKey: db.openAIKey,
         localNetworkMode: db.localNetworkMode,
@@ -2154,8 +2181,20 @@ export function changeToPreset(id =0, savecurrent = true){
     setPreset(db, newPres)
 }
 
-export function setPreset(db:Database, newPres: botPreset){
-    db.apiType = newPres.apiType ?? db.apiType
+/**
+ * A detached database with `preset` applied, for running one request as if that preset
+ * were active. `DBState.db` is never touched, so nothing is persisted, no reactive
+ * update fires, `botPresetsId` stays put, and an aborted call cannot leave the user on
+ * the wrong preset — the failure modes that make `changeToPreset` unusable mid-turn.
+ */
+export function resolvePresetAsDatabase(preset: botPreset): Database {
+    // The preset is cloned because setPreset assigns a few nested objects by reference
+    // and then fills defaults into them; without this, resolving a preset would write
+    // into the stored preset.
+    return setPreset({ ...DBState.db } as Database, safeStructuredClone(preset))
+}
+
+export function setPreset(db:Database, newPres: botPreset){    db.apiType = newPres.apiType ?? db.apiType
     db.localNetworkMode = newPres.localNetworkMode ?? db.localNetworkMode
     db.localNetworkTimeoutSec = newPres.localNetworkTimeoutSec ?? db.localNetworkTimeoutSec
     db.mainPrompt = newPres.mainPrompt ?? db.mainPrompt

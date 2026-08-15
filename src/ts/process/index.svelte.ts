@@ -1,5 +1,5 @@
 import { get, writable } from "svelte/store";
-import { type character, type MessageGenerationInfo, type Chat, type MessagePresetInfo, changeToPreset, setCurrentChat, type Message, type StreamingDisplayOptimizationMode } from "../storage/database.svelte";
+import { type character, type MessageGenerationInfo, type Chat, type MessagePresetInfo, changeToPreset, setCurrentChat, type Message, type StreamingDisplayOptimizationMode, type botPreset } from "../storage/database.svelte";
 import { DBState } from '../stores.svelte';
 import { CharEmotion, selectedCharID } from "../stores.svelte";
 import { ChatTokenizer, tokenize, tokenizeNum } from "../tokenizer";
@@ -9,6 +9,21 @@ import { parseChatML } from "../parser/chatML";
 import { loadLoreBookV3Prompt } from "./lorebook.svelte";
 import { findCharacterbyId, getAuthorNoteDefaultText, getPersonaPrompt, getUserName, isLastCharPunctuation, trimUntilPunctuation, parseToggleSyntax, prebuiltAssetCommand } from "../util";
 import { requestChatData } from "./request/request";
+import {
+    buildDirectorFormated,
+    buildWriterFormated,
+    getCachedPacket,
+    getPacketSchema,
+    getRolePrompt,
+    hashHistoryPrefix,
+    hashString,
+    packetCacheKey,
+    pickLatestUserMessage,
+    resolveDirectorWriter,
+    runDirector,
+    setCachedPacket,
+} from "./directorWriter";
+import { appendDirectorWriterLog } from "./directorWriterLog";
 import { stableDiff } from "./stableDiff";
 import { processScript, processScriptFull, risuChatParser } from "./scripts";
 import { exampleMessage } from "./exampleMessages";
@@ -91,6 +106,12 @@ export interface requestTokenPart{
 
 export const doingChat = writable(false)
 export const chatProcessStage = writable(0)
+/**
+ * Non-empty while the Director is running. Shown as a single status line and never
+ * written into the message body — otherwise it would end up in the history the
+ * Director reads next turn.
+ */
+export const directorStatus = writable('')
 export const abortChat = writable(false)
 export let requestTokenParts:{[key:string]:requestTokenPart[]} = {}
 export let previewFormated:OpenAIChat[] = []
@@ -1551,6 +1572,155 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         return true
     }
 
+    // ── Director–Writer pipeline ───────────────────────────────────────────────
+    // Only on real generations. Preview and dry-run paths must never spend a paid
+    // Director call.
+    let dwWriter: botPreset | null = null
+    const dw = (arg.preview || arg.previewPrompt) ? null : resolveDirectorWriter()
+    if(dw){
+        const dwMessages = DBState.db.characters[selectedChar].chats[selectedChat].message
+        const dwSchema = getPacketSchema(dw.director)
+        const dwPromptHash = hashString(getRolePrompt(dw.director, 'director'))
+        const dwSchemaHash = hashString(JSON.stringify(dwSchema))
+        const dwHistoryHash = hashHistoryPrefix(dwMessages)
+        const dwCacheKey = packetCacheKey({
+            historyHash: dwHistoryHash,
+            directorName: dw.director.name ?? '',
+            writerName: dw.writer.name ?? '',
+            promptHash: dwPromptHash,
+            schemaHash: dwSchemaHash,
+            characterId: currentChar?.chaId ?? '',
+        })
+
+        let dwPacket = ''
+        let dwPath: 'fresh'|'reroll-writer'|'continue' = 'fresh'
+        let dwReason = ''
+        let dwHashMatched = false
+        let dwRun: Awaited<ReturnType<typeof runDirector>> | null = null
+        let dwDirectorPromptHash = ''
+
+        if(arg.continue){
+            // Continue reuses the stored packet and skips the hash check on purpose:
+            // the partial reply is already in the history so the hash can never match,
+            // and re-directing on every cut-off sentence would be paid nonsense.
+            dwPacket = dwMessages.at(-1)?.generationInfo?.directorPacket ?? ''
+            dwPath = 'continue'
+            dwHashMatched = true
+            dwReason = dwPacket ? 'continue: reused stored packet' : 'continue: no stored packet, re-directing'
+        }
+        else{
+            const cached = getCachedPacket(dwCacheKey)
+            dwHashMatched = !!cached
+            if(cached && dw.settings.rerollMode === 'writer'){
+                // A cache hit means this exact history was already directed, which is
+                // what a reroll looks like from here: same direction, different prose.
+                dwPacket = cached
+                dwPath = 'reroll-writer'
+                dwReason = 'reroll: reused packet for identical history'
+            }
+        }
+
+        if(!dwPacket){
+            dwReason = dwReason || (dwHashMatched
+                ? 'reroll: re-directing because reroll mode is set to both'
+                : 'no valid packet for this history')
+            directorStatus.set(language.directorWorking)
+            try{
+                const dwDirectorFormated = buildDirectorFormated({
+                    base: formated,
+                    director: dw.director,
+                    schema: dwSchema,
+                    currentChar,
+                })
+                dwDirectorPromptHash = hashString(JSON.stringify(dwDirectorFormated))
+                dwRun = await runDirector({
+                    formated: dwDirectorFormated,
+                    director: dw.director,
+                    schema: dwSchema,
+                    currentChar,
+                    abortSignal,
+                })
+            }
+            finally{
+                directorStatus.set('')
+            }
+
+            if(abortSignal.aborted){
+                return false
+            }
+
+            if(!dwRun.ok){
+                void appendDirectorWriterLog({
+                    time: new Date().toISOString(),
+                    chatId: DBState.db.characters[selectedChar].chats[selectedChat].id ?? '',
+                    messageId: generationId,
+                    path: dwPath,
+                    reason: dwReason,
+                    historyHashMatched: dwHashMatched,
+                    directorPromptHash: dwPromptHash,
+                    schemaHash: dwSchemaHash,
+                    validation: dwRun.validation ? { ...dwRun.validation, attempts: dwRun.attempts } : undefined,
+                    error: dwRun.error,
+                })
+                throwError(dwRun.error ?? 'Director failed')
+                return false
+            }
+
+            dwPacket = dwRun.packet
+            setCachedPacket(dwCacheKey, dwPacket, dw.settings.packetCacheSize)
+        }
+
+        const dwDirectorTokens = inputTokens
+        formated = buildWriterFormated({
+            writer: dw.writer,
+            packet: dwPacket,
+            userMessage: pickLatestUserMessage(formated, dwMessages),
+            currentChar,
+        })
+
+        if(arg.continue){
+            // The Writer has no history, so the part already written has to be handed
+            // back explicitly or it would start the reply over.
+            const partial = dwMessages.at(-1)?.data ?? ''
+            if(partial){
+                formated.push({ role: 'assistant', content: partial })
+            }
+        }
+
+        dwWriter = dw.writer
+        generationInfo.directorPacket = dwPacket
+        generationInfo.directorHistoryHash = dwHistoryHash
+        generationInfo.directorPresetName = dw.director.name ?? ''
+        generationInfo.writerPresetName = dw.writer.name ?? ''
+        generationInfo.directorPromptHash = dwPromptHash
+        generationInfo.directorSchemaHash = dwSchemaHash
+
+        void appendDirectorWriterLog({
+            time: new Date().toISOString(),
+            chatId: DBState.db.characters[selectedChar].chats[selectedChat].id ?? '',
+            messageId: generationId,
+            path: dwPath,
+            reason: dwReason,
+            historyHashMatched: dwHashMatched,
+            directorPromptHash: dwPromptHash,
+            schemaHash: dwSchemaHash,
+            director: dwRun ? {
+                preset: dw.director.name ?? '',
+                model: dwRun.model ?? dw.director.aiModel ?? '',
+                promptTokens: dwDirectorTokens,
+                promptHash: dwDirectorPromptHash,
+                packetChars: dwPacket.length,
+                durationMs: dwRun.durationMs,
+                packet: dwPacket,
+            } : undefined,
+            writer: {
+                preset: dw.writer.name ?? '',
+                model: dw.writer.aiModel ?? '',
+            },
+            validation: dwRun?.validation ? { ...dwRun.validation, attempts: dwRun.attempts } : undefined,
+        })
+    }
+
     const req = await requestChatData({
         formated: formated,
         biasString: biases,
@@ -1564,6 +1734,8 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         previewBody: arg.previewPrompt,
         escape: nowChatroom.type === 'character' && nowChatroom.escapeOutput,
         rememberToolUsage: DBState.db.rememberToolUsage,
+        staticModel: dwWriter?.aiModel || undefined,
+        presetOverride: dwWriter ?? undefined,
     }, 'model', abortSignal)
 
     console.log(req)

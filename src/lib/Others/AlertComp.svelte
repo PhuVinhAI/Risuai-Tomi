@@ -513,6 +513,19 @@
                     {/await}
                 {/if}
                 {#if generationInfoMenuIndex === 3}
+                    {@const dwInfo = DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].message[$alertGenerationInfoStore.idx].generationInfo}
+                    {#if dwInfo?.directorPacket}
+                        <div class="grid grid-cols-2 gap-y-2 gap-x-4 mt-4">
+                            <span class="text-blue-500">{language.directorPreset}</span>
+                            <span class="text-blue-500 justify-self-end">{dwInfo.directorPresetName ?? ''}</span>
+                            <span class="text-blue-500">{language.writerPreset}</span>
+                            <span class="text-blue-500 justify-self-end">{dwInfo.writerPresetName ?? ''}</span>
+                            <span class="text-green-500">{language.directorPacket}</span>
+                            <div class="col-span-2 max-h-80 overflow-y-auto border border-stone-500 rounded-sm p-4 bg-gray-900">
+                                <pre class="whitespace-pre-wrap text-sm">{dwInfo.directorPacket}</pre>
+                            </div>
+                        </div>
+                    {/if}
                     {#if Object.keys(DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].message[$alertGenerationInfoStore.idx].promptInfo || {}).length === 0}
                         <div class="text-gray-300 text-lg mt-2">{language.promptInfoEmptyMessage}</div>
                     {:else}

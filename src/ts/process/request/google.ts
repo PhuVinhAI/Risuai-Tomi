@@ -44,7 +44,7 @@ interface GeminiChat {
 export async function requestGoogleCloudVertex(arg:RequestDataArgumentExtended):Promise<requestDataResponse> {
 
     const formated = arg.formated
-    const db = getDatabase()
+    const db = arg.db ?? getDatabase()
     const maxTokens = arg.maxTokens
 
     let reformatedChat:GeminiChat[] = []
@@ -339,7 +339,8 @@ export async function requestGoogleCloudVertex(arg:RequestDataArgumentExtended):
             'reasoning_effort': "thinkingConfig.thinkingLevel"
         }, arg.mode, {
             ignoreTopKIfZero: true,
-            modelId: arg.modelInfo.id
+            modelId: arg.modelInfo.id,
+            db: arg.db
         }),
         safetySettings: uncensoredCatagory,
         systemInstruction: {
@@ -501,7 +502,7 @@ export async function requestGoogleCloudVertex(arg:RequestDataArgumentExtended):
             throw new Error("No google access token in the response");
         }
 
-        const db2 = getDatabase()
+        const db2 = arg.db ?? getDatabase()
         db2.vertexAccessToken = token
         db2.vertexAccessTokenExpires = Date.now() + 3500 * 1000
         setDatabase(db2)
@@ -566,7 +567,7 @@ export async function requestGoogleCloudVertex(arg:RequestDataArgumentExtended):
         body.tools = undefined
     }
 
-    body = applyAdditionalParameters(body, headers, getAdditionalParameters(arg.aiModel))
+    body = applyAdditionalParameters(body, headers, getAdditionalParameters(arg.aiModel, arg.db))
 
     if(arg.previewBody){
         return {
@@ -584,7 +585,7 @@ export async function requestGoogleCloudVertex(arg:RequestDataArgumentExtended):
 
 async function requestGoogle(url:string, body:any, headers:{[key:string]:string}, arg:RequestDataArgumentExtended):Promise<requestDataResponse> {
     
-    const db = getDatabase()
+    const db = arg.db ?? getDatabase()
 
     const fallBackGemini = async (originalError:string):Promise<requestDataResponse> => {
         if(!db.antiServerOverloads){
@@ -1076,7 +1077,7 @@ function wrapToolStream(
     return new ReadableStream<StreamResponseChunk>({
         async start(controller) {
 
-            const db = getDatabase()
+            const db = arg.db ?? getDatabase()
             let reader = stream.getReader()
             let prefix = ''
             let lastValue = initStreamState()

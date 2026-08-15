@@ -35,7 +35,7 @@ function shouldUseOpenAIFlexProcessing(aiModel: string, url: string, provider: L
 export async function requestOpenAI(arg:RequestDataArgumentExtended):Promise<requestDataResponse>{
     let formatedChat:OpenAIChatExtra[] = []
     const formated = arg.formated
-    const db = getDatabase()
+    const db = arg.db ?? getDatabase()
     const aiModel = arg.aiModel
 
     const processToolCalls = async (text:string, originalMessage:any) => {
@@ -289,7 +289,8 @@ export async function requestOpenAI(arg:RequestDataArgumentExtended):Promise<req
                 safe_prompt: false,
                 max_tokens: arg.maxTokens,
             }, ['temperature', 'presence_penalty', 'frequency_penalty', 'top_p'], {}, arg.mode, {
-                modelId: arg.modelInfo.id
+                modelId: arg.modelInfo.id,
+            db: arg.db
             } ),
             headers: {
                 "Authorization": "Bearer " + (arg.key ?? db.mistralKey),
@@ -451,7 +452,8 @@ export async function requestOpenAI(arg:RequestDataArgumentExtended):Promise<req
         {},
         arg.mode,
         {
-            modelId: arg.modelInfo.id
+            modelId: arg.modelInfo.id,
+            db: arg.db
         }
     )
 
@@ -573,7 +575,7 @@ export async function requestOpenAI(arg:RequestDataArgumentExtended):Promise<req
         body.n = db.genTime
     }
     
-    body = applyAdditionalParameters(body, headers, getAdditionalParameters(aiModel))
+    body = applyAdditionalParameters(body, headers, getAdditionalParameters(aiModel, arg.db))
 
     // Some aux flows are intentionally non-streaming (e.g. memory/translate).
     // If custom Additional Parameters contains stream=true, force non-stream mode back.
@@ -672,7 +674,7 @@ export async function requestHTTPOpenAI(
     networkOptions: LocalNetworkRequestOptions = {}
 ):Promise<requestDataResponse>{
     
-    const db = getDatabase()
+    const db = arg.db ?? getDatabase()
     const res = await globalFetch(replacerURL, {
         body: body,
         headers: headers,
@@ -899,7 +901,7 @@ export async function requestHTTPOpenAI(
 
 export async function requestOpenAILegacyInstruct(arg:RequestDataArgumentExtended):Promise<requestDataResponse>{
     const formated = arg.formated
-    const db = getDatabase()
+    const db = arg.db ?? getDatabase()
     const maxTokens = arg.maxTokens
     const temperature = arg.temperature
     const prompt = formated.filter(m => m.content?.trim()).map(m => {
@@ -946,7 +948,7 @@ export async function requestOpenAILegacyInstruct(arg:RequestDataArgumentExtende
         "Authorization": "Bearer " + (arg.key ?? db.openAIKey)
     }
 
-    body = applyAdditionalParameters(body, headers, getAdditionalParameters(arg.aiModel))
+    body = applyAdditionalParameters(body, headers, getAdditionalParameters(arg.aiModel, arg.db))
 
     const response = await globalFetch(arg.customURL ?? "https://api.openai.com/v1/completions", {
         body: body,
@@ -973,7 +975,7 @@ function getTranStream(arg:RequestDataArgumentExtended):TransformStream<Uint8Arr
     let dataUint:Uint8Array|Buffer = new Uint8Array([])
     let reasoningContent = ""
     let reasoningFromStructured = false
-    const db = getDatabase()
+    const db = arg.db ?? getDatabase()
 
     const appendStreamingFragment = (current:string, incoming?:string) => {
         if(!incoming){
@@ -1146,7 +1148,7 @@ function wrapToolStream(
     return new ReadableStream<StreamResponseChunk>({
         async start(controller) {
 
-            const db = getDatabase()
+            const db = arg.db ?? getDatabase()
             let reader = stream.getReader()
             let prefix = ''
             let lastValue

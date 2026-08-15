@@ -8,7 +8,7 @@
     import { type Message } from "../../ts/storage/database.svelte";
     import { DBState } from 'src/ts/stores.svelte';
     import { getCharImage } from "../../ts/characters";
-    import { chatProcessStage, doingChat, sendChat } from "../../ts/process/index.svelte";
+    import { chatProcessStage, directorStatus, doingChat, sendChat } from "../../ts/process/index.svelte";
     import { sleep } from "../../ts/util";
     import { language } from "../../lang";
     import { isExpTranslator, translate } from "../../ts/translator/translator";
@@ -583,6 +583,11 @@
                 showNewMessageButton = false;
             }
         }}>
+            {#if $directorStatus}
+                <div class="w-full flex justify-center">
+                    <span class="text-textcolor2 text-sm animate-pulse px-4 py-1">{$directorStatus}</span>
+                </div>
+            {/if}
             <div
                     class="{DBState.db.fixedChatTextarea ? 'sticky pt-2 pb-2 right-0 bottom-0 bg-bgcolor' : 'mt-2 mb-2'} flex items-stretch w-full"
                     style="{DBState.db.fixedChatTextarea ? 'z-index:29;' : ''}"

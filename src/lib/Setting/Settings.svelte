@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { AccessibilityIcon, ActivityIcon, PackageIcon, BotIcon, BoxIcon, CodeIcon, ContactIcon, LanguagesIcon, MonitorIcon, Sailboat, UserIcon, CircleXIcon, KeyboardIcon, SparkleIcon } from "@lucide/svelte";
+    import { AccessibilityIcon, ActivityIcon, ClapperboardIcon, PackageIcon, BotIcon, BoxIcon, CodeIcon, ContactIcon, LanguagesIcon, MonitorIcon, Sailboat, UserIcon, CircleXIcon, KeyboardIcon, SparkleIcon } from "@lucide/svelte";
     import { language } from "src/lang";
     import DisplaySettings from "./Pages/DisplaySettings.svelte";
     import UserSettings from "./Pages/UserSettings.svelte";
@@ -8,6 +8,7 @@
     import PluginSettings from "./Pages/PluginSettings.svelte";
     import FilesSettings from "./Pages/FilesSettings.svelte";
     import AdvancedSettings from "./Pages/AdvancedSettings.svelte";
+    import DirectorWriterSettings from "./Pages/DirectorWriterSettings.svelte";
     import { additionalSettingsMenu, easyPanelStore, MobileGUI, SettingsMenuIndex, settingsOpen } from "src/ts/stores.svelte";
     import { DBState } from "src/ts/stores.svelte";
     import Communities from "./Pages/Communities.svelte";
@@ -66,6 +67,15 @@
                     }}>
                         <Sailboat />
                         <span>{language.otherBots}</span>
+                    </button>
+                    <button class="flex gap-2 items-center hover:text-textcolor"
+                        class:text-textcolor={$SettingsMenuIndex === 17}
+                        class:text-textcolor2={$SettingsMenuIndex !== 17}
+                        onclick={() => {
+                            $SettingsMenuIndex = 17
+                    }}>
+                        <ClapperboardIcon />
+                        <span>{language.directorWriter}</span>
                     </button>
                     <button class="flex gap-2 items-center hover:text-textcolor"
                         class:text-textcolor={$SettingsMenuIndex === 3}
@@ -209,6 +219,8 @@
                         <FilesSettings />
                     {:else if $SettingsMenuIndex === 6}
                         <AdvancedSettings />
+                    {:else if $SettingsMenuIndex === 17}
+                        <DirectorWriterSettings />
                     {:else if $SettingsMenuIndex === 7}
                         <Communities />
                     {:else if $SettingsMenuIndex === 8}

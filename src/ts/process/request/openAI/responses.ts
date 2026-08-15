@@ -78,7 +78,7 @@ async function decodeRememberedToolCallsForResponses(text:string):Promise<Respon
 async function buildResponseInputItems(arg:RequestDataArgumentExtended):Promise<ResponseItem[]>{
     const items:ResponseItem[] = []
     const developerRole = arg.modelInfo.flags.includes(LLMFlags.DeveloperRole)
-    const db = getDatabase()
+    const db = arg.db ?? getDatabase()
 
     for(const content of arg.formated as OpenAIChatExtra[]){
         switch(content.role){
@@ -163,7 +163,7 @@ async function buildResponseInputItems(arg:RequestDataArgumentExtended):Promise<
 }
 
 function getResponsesRequestURL(arg:RequestDataArgumentExtended):{requestURL:string, risuIdentify:boolean}{
-    const db = getDatabase()
+    const db = arg.db ?? getDatabase()
     const aiModel = arg.aiModel
     let requestURL = aiModel === 'nanogpt'
         ? (db.nanogptUseSubscriptionEndpoint ? NANOGPT_SUBSCRIPTION_RESPONSES_ENDPOINT : NANOGPT_RESPONSES_ENDPOINT)
@@ -227,7 +227,7 @@ function getResponsesRequestURL(arg:RequestDataArgumentExtended):{requestURL:str
 }
 
 function buildResponsesHeaders(arg:RequestDataArgumentExtended, risuIdentify:boolean):Record<string,string>{
-    const db = getDatabase()
+    const db = arg.db ?? getDatabase()
     const aiModel = arg.aiModel
     const headers = {
         "Authorization": "Bearer " + (arg.key ?? (aiModel === 'nanogpt' ? db.nanogptKey : aiModel === 'reverse_proxy' ? db.proxyKey : db.openAIKey)),
@@ -248,7 +248,7 @@ function buildResponsesHeaders(arg:RequestDataArgumentExtended, risuIdentify:boo
 }
 
 function getResponsesRequestModel(arg:RequestDataArgumentExtended):string{
-    const db = getDatabase()
+    const db = arg.db ?? getDatabase()
     if(arg.aiModel === 'nanogpt'){
         return db.nanogptRequestModel || arg.modelInfo.internalID || arg.aiModel
     }
@@ -318,7 +318,7 @@ function toExternalResponsesBody(body:Record<string, any>):Record<string, any>{
 }
 
 async function buildResponsesBody(arg:RequestDataArgumentExtended):Promise<Record<string, any>>{
-    const db = getDatabase()
+    const db = arg.db ?? getDatabase()
     const tools:any[] = []
 
     if(arg.tools && arg.tools.length > 0){
@@ -347,7 +347,8 @@ async function buildResponsesBody(arg:RequestDataArgumentExtended):Promise<Recor
         reasoning_effort: 'reasoning.effort',
         verbosity: 'text.verbosity'
     }, arg.mode, {
-        modelId: arg.modelInfo.id
+        modelId: arg.modelInfo.id,
+            db: arg.db
     })
 
     if(body.tools.length === 0){
@@ -413,7 +414,7 @@ function extractResponsesReasoningTexts(item:any):string[]{
 }
 
 function extractResponsesText(data:any, arg:RequestDataArgumentExtended):string{
-    const db = getDatabase()
+    const db = arg.db ?? getDatabase()
     const texts:string[] = []
     const refusals:string[] = []
     const thoughts:string[] = []
@@ -463,7 +464,7 @@ function extractResponsesFunctionCalls(data:any):ResponseFunctionCallItem[]{
 }
 
 async function appendResponsesToolOutputs(body:any, calls:ResponseFunctionCallItem[], arg:RequestDataArgumentExtended, assistantText:string):Promise<string>{
-    const db = getDatabase()
+    const db = arg.db ?? getDatabase()
     const input = body.input as ResponseItem[]
     for(const item of body.__lastOutput ?? []){
         const sanitized = sanitizeResponsesContinuationItem(item)
@@ -518,7 +519,7 @@ async function appendResponsesToolOutputs(body:any, calls:ResponseFunctionCallIt
 }
 
 async function requestHTTPResponsesAPI(requestURL:string, body:any, headers:Record<string,string>, arg:RequestDataArgumentExtended, networkOptions:LocalNetworkRequestOptions):Promise<requestDataResponse>{
-    const db = getDatabase()
+    const db = arg.db ?? getDatabase()
     const response = await globalFetch(requestURL, {
         body: toExternalResponsesBody(body),
         headers: headers,
@@ -579,7 +580,7 @@ async function requestHTTPResponsesAPI(requestURL:string, body:any, headers:Reco
 }
 
 function getResponsesTranStream(arg:RequestDataArgumentExtended):TransformStream<Uint8Array, StreamResponseChunk>{
-    const db = getDatabase()
+    const db = arg.db ?? getDatabase()
     const decoder = new TextDecoder()
     let buffer = ''
     let text = ''
@@ -723,7 +724,7 @@ export const __testResponsesAPI = {
 function wrapResponsesToolStream(stream:ReadableStream<StreamResponseChunk>, body:any, headers:Record<string,string>, requestURL:string, arg:RequestDataArgumentExtended, networkOptions:LocalNetworkRequestOptions):ReadableStream<StreamResponseChunk>{
     return new ReadableStream<StreamResponseChunk>({
         async start(controller) {
-            const db = getDatabase()
+            const db = arg.db ?? getDatabase()
             let reader = stream.getReader()
             let prefix = ''
             let lastValue:StreamResponseChunk = { "0": '' }
@@ -798,14 +799,14 @@ function wrapResponsesToolStream(stream:ReadableStream<StreamResponseChunk>, bod
 }
 
 export async function requestOpenAIResponseAPI(arg:RequestDataArgumentExtended):Promise<requestDataResponse>{
-    const db = getDatabase()
+    const db = arg.db ?? getDatabase()
     const aiModel = arg.aiModel
     let body = await buildResponsesBody(arg)
     const { requestURL, risuIdentify } = getResponsesRequestURL(arg)
     const headers = buildResponsesHeaders(arg, risuIdentify)
 
     if(aiModel === 'reverse_proxy' || aiModel?.startsWith('xcustom:::')){
-        body = applyAdditionalParameters(body, headers, getAdditionalParameters(aiModel))
+        body = applyAdditionalParameters(body, headers, getAdditionalParameters(aiModel, arg.db))
     }
     if(!arg.useStreaming){
         body.stream = false

@@ -70,7 +70,7 @@ interface Claude3ExtendedChat {
 
 export async function requestClaude(arg:RequestDataArgumentExtended):Promise<requestDataResponse> {
     const formated = arg.formated
-    const db = getDatabase()
+    const db = arg.db ?? getDatabase()
     const aiModel = arg.aiModel
     const useStreaming = arg.useStreaming
     const ollamaCloudAnthropic = aiModel === 'ollama-cloud'
@@ -357,7 +357,8 @@ export async function requestClaude(arg:RequestDataArgumentExtended):Promise<req
     }, arg.modelInfo.parameters, {
         'thinking_tokens': 'thinking.budget_tokens'
     }, arg.mode, {
-        modelId: arg.modelInfo.id
+        modelId: arg.modelInfo.id,
+            db: arg.db
     })
 
     // Handle thinking mode: off, adaptive, or budget
@@ -390,7 +391,7 @@ export async function requestClaude(arg:RequestDataArgumentExtended):Promise<req
     }
 
     const bedrock = arg.modelInfo.format === LLMFormat.AWSBedrockClaude
-    const additionalParams = getAdditionalParameters(aiModel)
+    const additionalParams = getAdditionalParameters(aiModel, arg.db)
     const hasCustomAnthropicBeta = additionalParams.some(([key]) => {
         return key.startsWith('header::') && key.slice('header::'.length).toLocaleLowerCase() === 'anthropic-beta'
     })
@@ -1050,7 +1051,7 @@ async function requestClaudeHTTP(replacerURL:string, headers:{[key:string]:strin
 
     }
 
-    const db = getDatabase()
+    const db = arg.db ?? getDatabase()
     const res = await globalFetch(replacerURL, {
         body: body,
         headers: headers,

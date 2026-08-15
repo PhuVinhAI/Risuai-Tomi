@@ -4,7 +4,7 @@ import { fetchNative, globalFetch } from "../../globalApi.svelte";
 import { getModelInfo, LLMFlags, LLMFormat, type LLMModel } from "../../model/modellist";
 import { risuChatParser, risuEscape, risuUnescape } from "../../parser/parser.svelte";
 import { pluginProcess, pluginV2 } from "../../plugins/plugins.svelte";
-import { getCurrentCharacter, getCurrentChat, getDatabase, type character } from "../../storage/database.svelte";
+import { getCurrentCharacter, getCurrentChat, getDatabase, resolvePresetAsDatabase, type botPreset, type character, type Database } from "../../storage/database.svelte";
 import { tokenizeNum } from "../../tokenizer";
 import { sleep } from "../../util";
 import type { OpenAIChat } from "../index.svelte";
@@ -51,6 +51,22 @@ interface requestDataArgument{
     tools?: MCPTool[]
     rememberToolUsage?: boolean
     blockPlugins?:boolean
+    /**
+     * Skip the `request` trigger for this call. Used by the Director–Writer pipeline so
+     * a user's request scripts run once per turn (on the Writer) instead of twice, and
+     * never receive the Director prompt, which is not a roleplay prompt.
+     */
+    skipRequestTrigger?:boolean
+    /**
+     * Run this call as if `preset` were the active preset. Resolved once into `db`, which
+     * every read in the request layer goes through, so the call gets that preset's
+     * parameters, provider settings, keys, additional parameters and reasoning options —
+     * without touching DBState.db, so nothing is persisted and an abort cannot leave the
+     * user on the wrong preset.
+     */
+    presetOverride?:botPreset
+    /** Resolved form of `presetOverride`. Set internally; callers pass `presetOverride`. */
+    db?:Database
 }
 
 export interface RequestDataArgumentExtended extends requestDataArgument{
@@ -203,10 +219,21 @@ function normalizeOllamaStreamResponse(response: Response): Response {
 }
 
 export async function requestChatData(arg:requestDataArgument, model:ModelModeExtended, abortSignal:AbortSignal=null):Promise<requestDataResponse> {
-    const db = getDatabase()
+    if(arg.presetOverride && !arg.db){
+        arg.db = resolvePresetAsDatabase(arg.presetOverride)
+    }
+    const db = arg.db ?? getDatabase()
     const fallBackModels:string[] = safeStructuredClone(db?.fallbackModels?.[model] ?? [])
     const tools = arg.tools ?? (await getTools())
-    fallBackModels.push('')
+    if(arg.staticModel){
+        // An explicit per-call model (Director–Writer) is the primary attempt, with any
+        // configured fallbacks tried after it. Without this the loop's first attempt
+        // would be fallbackModels[0], silently running on the wrong model.
+        fallBackModels.unshift(arg.staticModel)
+    }
+    else{
+        fallBackModels.push('')
+    }
     let da:requestDataResponse
 
     if(arg.escape){
@@ -244,7 +271,7 @@ export async function requestChatData(arg:requestDataArgument, model:ModelModeEx
             
             try{
                 const currentChar = getCurrentCharacter()
-                if(currentChar?.type !== 'group'){
+                if(currentChar?.type !== 'group' && !arg.skipRequestTrigger){
                     const perf = performance.now()
                     const d = await runTrigger(currentChar, 'request', {
                         chat: getCurrentChat(),
@@ -267,7 +294,10 @@ export async function requestChatData(arg:requestDataArgument, model:ModelModeEx
     
             da = await requestChatDataMain({
                 ...arg,
-                staticModel: fallBackModels[fallbackIndex],
+                // An empty fallback slot means "no fallback for this attempt", so an
+                // explicit model from the caller must survive it. Without the `||` the
+                // loop would overwrite arg.staticModel with '' on the first attempt.
+                staticModel: fallBackModels[fallbackIndex] || arg.staticModel,
                 tools: tools,
             }, model, abortSignal)
 
@@ -345,11 +375,11 @@ export async function requestChatData(arg:requestDataArgument, model:ModelModeEx
     }
 }
 
-export function reformater(formated:OpenAIChat[],modelInfo:LLMModel|LLMFlags[]){
+export function reformater(formated:OpenAIChat[],modelInfo:LLMModel|LLMFlags[], dbOverride?:Database){
 
     const flags = Array.isArray(modelInfo) ? modelInfo : modelInfo.flags
-    
-    const db = getDatabase()
+
+    const db = dbOverride ?? getDatabase()
     let systemPrompt:OpenAIChat|null = null
 
     if(!flags.includes(LLMFlags.hasFullSystemPrompt)){
@@ -433,7 +463,7 @@ export function reformater(formated:OpenAIChat[],modelInfo:LLMModel|LLMFlags[]){
 
 
 export async function requestChatDataMain(arg:requestDataArgument, model:ModelModeExtended, abortSignal:AbortSignal=null):Promise<requestDataResponse> {
-    const db = getDatabase()
+    const db = arg.db ?? getDatabase()
     const targ:RequestDataArgumentExtended = arg
 
     
@@ -479,7 +509,7 @@ export async function requestChatDataMain(arg:requestDataArgument, model:ModelMo
 
     const format = targ.modelInfo.format
 
-    targ.formated = reformater(targ.formated, targ.modelInfo)
+    targ.formated = reformater(targ.formated, targ.modelInfo, targ.db)
 
     switch(format){
         case LLMFormat.OpenAICompatible:
@@ -538,7 +568,7 @@ export async function requestChatDataMain(arg:requestDataArgument, model:ModelMo
 
 async function requestNovelAI(arg:RequestDataArgumentExtended):Promise<requestDataResponse>{
     const formated = arg.formated
-    const db = getDatabase()
+    const db = arg.db ?? getDatabase()
     const aiModel = arg.aiModel
     const temperature = arg.temperature
     const maxTokens = arg.maxTokens
@@ -626,7 +656,7 @@ async function requestNovelAI(arg:RequestDataArgumentExtended):Promise<requestDa
         "Authorization": "Bearer " + (arg.key ?? db.novelai.token)
     }
 
-    body = applyAdditionalParameters(body, headers, getAdditionalParameters(aiModel))
+    body = applyAdditionalParameters(body, headers, getAdditionalParameters(aiModel, arg.db))
 
     const da = await globalFetch(aiModel === 'novelai_kayra' ? "https://text.novelai.net/ai/generate" : "https://api.novelai.net/ai/generate", {
         body: body,
@@ -649,7 +679,7 @@ async function requestNovelAI(arg:RequestDataArgumentExtended):Promise<requestDa
 
 async function requestOobaLegacy(arg:RequestDataArgumentExtended):Promise<requestDataResponse> {
     const formated = arg.formated
-    const db = getDatabase()
+    const db = arg.db ?? getDatabase()
     const aiModel = arg.aiModel
     const maxTokens = arg.maxTokens
     const currentChar = getCurrentCharacter()
@@ -694,7 +724,7 @@ async function requestOobaLegacy(arg:RequestDataArgumentExtended):Promise<reques
         'X-API-KEY': db.mancerHeader
     }
 
-    bodyTemplate = applyAdditionalParameters(bodyTemplate, headers, getAdditionalParameters(aiModel))
+    bodyTemplate = applyAdditionalParameters(bodyTemplate, headers, getAdditionalParameters(aiModel, arg.db))
 
     if(arg.previewBody){
         return {
@@ -788,7 +818,7 @@ async function requestOobaLegacy(arg:RequestDataArgumentExtended):Promise<reques
 
 async function requestOoba(arg:RequestDataArgumentExtended):Promise<requestDataResponse> {
     const formated = arg.formated
-    const db = getDatabase()
+    const db = arg.db ?? getDatabase()
     const aiModel = arg.aiModel
     const maxTokens = arg.maxTokens
     const temperature = arg.temperature
@@ -826,7 +856,7 @@ async function requestOoba(arg:RequestDataArgumentExtended):Promise<requestDataR
     }
 
     let headers: Record<string, string> = {}
-    bodyTemplate = applyAdditionalParameters(bodyTemplate, headers, getAdditionalParameters(aiModel))
+    bodyTemplate = applyAdditionalParameters(bodyTemplate, headers, getAdditionalParameters(aiModel, arg.db))
 
     if(arg.previewBody){
         return {
@@ -861,7 +891,7 @@ async function requestOoba(arg:RequestDataArgumentExtended):Promise<requestDataR
 }
 
 async function requestPlugin(arg:RequestDataArgumentExtended):Promise<requestDataResponse> {
-    const db = getDatabase()
+    const db = arg.db ?? getDatabase()
     const isV3Model = arg.aiModel.startsWith('pluginmodel:::')
     const responseModel = isV3Model ? arg.aiModel : 'custom'
     try {
@@ -888,7 +918,8 @@ async function requestPlugin(arg:RequestDataArgumentExtended):Promise<requestDat
         }, [
             'frequency_penalty','min_p','presence_penalty','repetition_penalty','top_k','top_p','temperature'
         ], {}, arg.mode, {
-            modelId: arg.aiModel
+            modelId: arg.aiModel,
+            db: arg.db
         }) as any, arg.abortSignal)) : await pluginProcess({
             bias: bias,
             prompt_chat: formated,
@@ -948,7 +979,7 @@ async function requestPlugin(arg:RequestDataArgumentExtended):Promise<requestDat
 }
 
 async function requestEcho(arg:RequestDataArgumentExtended):Promise<requestDataResponse> {
-    const db = getDatabase()
+    const db = arg.db ?? getDatabase()
     const delay = db.echoDelay ?? 0
     const message = db.echoMessage ?? "Echo Message"
 
@@ -964,7 +995,7 @@ async function requestEcho(arg:RequestDataArgumentExtended):Promise<requestDataR
 
 async function requestKobold(arg:RequestDataArgumentExtended):Promise<requestDataResponse> {
     const formated = arg.formated
-    const db = getDatabase()
+    const db = arg.db ?? getDatabase()
     const maxTokens = arg.maxTokens
     const abortSignal = arg.abortSignal
 
@@ -988,14 +1019,15 @@ async function requestKobold(arg:RequestDataArgumentExtended):Promise<requestDat
     ], {
         'repetition_penalty': 'rep_pen'
     }, arg.mode, {
-        modelId: arg.aiModel
+        modelId: arg.aiModel,
+            db: arg.db
     }) as KoboldGenerationInputSchema
 
     let headers: Record<string, string> = {
         "content-type": "application/json",
     }
 
-    body = applyAdditionalParameters(body, headers, getAdditionalParameters(arg.aiModel)) as KoboldGenerationInputSchema
+    body = applyAdditionalParameters(body, headers, getAdditionalParameters(arg.aiModel, arg.db)) as KoboldGenerationInputSchema
 
     if(arg.previewBody){
         return {
@@ -1034,7 +1066,7 @@ async function requestKobold(arg:RequestDataArgumentExtended):Promise<requestDat
 async function requestNovelList(arg:RequestDataArgumentExtended):Promise<requestDataResponse> {
 
     const formated = arg.formated
-    const db = getDatabase()
+    const db = arg.db ?? getDatabase()
     const maxTokens = arg.maxTokens
     const temperature = arg.temperature
     const biasString = arg.biasString
@@ -1073,7 +1105,7 @@ async function requestNovelList(arg:RequestDataArgumentExtended):Promise<request
         logit_bias_values: (logit_bias_values.length > 0) ? logit_bias_values.join("|") : undefined,
     };
 
-    send_body = applyAdditionalParameters(send_body, headers, getAdditionalParameters(arg.aiModel))
+    send_body = applyAdditionalParameters(send_body, headers, getAdditionalParameters(arg.aiModel, arg.db))
 
     if(arg.previewBody){
         return {
@@ -1117,7 +1149,7 @@ async function requestNovelList(arg:RequestDataArgumentExtended):Promise<request
 
 async function requestOllama(arg:RequestDataArgumentExtended):Promise<requestDataResponse> {
     const formated = arg.formated
-    const db = getDatabase()
+    const db = arg.db ?? getDatabase()
     const isCloud = arg.aiModel === 'ollama-cloud'
     const requestFormat = isCloud ? db.ollamaRequestFormat : LLMFormat.Ollama
     const ollamaModel = isCloud ? db.ollamaCloudModel : db.ollamaModel
@@ -1167,7 +1199,7 @@ async function requestOllama(arg:RequestDataArgumentExtended):Promise<requestDat
         think: ollamaThinkMode
     }
 
-    requestBody = applyAdditionalParameters(requestBody, customHeaders, getAdditionalParameters(arg.aiModel))
+    requestBody = applyAdditionalParameters(requestBody, customHeaders, getAdditionalParameters(arg.aiModel, arg.db))
 
     if(arg.previewBody){
         return {
@@ -1229,7 +1261,7 @@ async function requestOllama(arg:RequestDataArgumentExtended):Promise<requestDat
 
 async function requestCohere(arg:RequestDataArgumentExtended):Promise<requestDataResponse> {
     const formated = arg.formated
-    const db = getDatabase()
+    const db = arg.db ?? getDatabase()
     const aiModel = arg.aiModel
 
     let lastChatPrompt = ''
@@ -1292,7 +1324,8 @@ async function requestCohere(arg:RequestDataArgumentExtended):Promise<requestDat
         'top_k': 'k',
         'top_p': 'p',
     }, arg.mode, {
-        modelId: arg.aiModel
+        modelId: arg.aiModel,
+            db: arg.db
     })
 
     if(aiModel !== 'cohere-command-r-03-2024' && aiModel !== 'cohere-command-r-plus-04-2024'){
@@ -1313,7 +1346,7 @@ async function requestCohere(arg:RequestDataArgumentExtended):Promise<requestDat
         "Content-Type": "application/json"
     }
 
-    body = applyAdditionalParameters(body, headers, getAdditionalParameters(arg.aiModel))
+    body = applyAdditionalParameters(body, headers, getAdditionalParameters(arg.aiModel, arg.db))
     console.log(body)
 
     if(arg.previewBody){
@@ -1359,7 +1392,7 @@ async function requestCohere(arg:RequestDataArgumentExtended):Promise<requestDat
 
 async function requestHorde(arg:RequestDataArgumentExtended):Promise<requestDataResponse> {
     const formated = arg.formated
-    const db = getDatabase()
+    const db = arg.db ?? getDatabase()
     const aiModel = arg.aiModel
     const currentChar = getCurrentCharacter()
     const abortSignal = arg.abortSignal
@@ -1409,7 +1442,7 @@ async function requestHorde(arg:RequestDataArgumentExtended):Promise<requestData
         "apikey": apiKey
     }
 
-    let finalBody = applyAdditionalParameters(argument, headers, getAdditionalParameters(arg.aiModel))
+    let finalBody = applyAdditionalParameters(argument, headers, getAdditionalParameters(arg.aiModel, arg.db))
 
     const da = await fetch("https://stablehorde.net/api/v2/generate/text/async", {
         body: JSON.stringify(finalBody),
@@ -1468,7 +1501,7 @@ async function requestHorde(arg:RequestDataArgumentExtended):Promise<requestData
 
 async function requestWebLLM(arg:RequestDataArgumentExtended):Promise<requestDataResponse> {
     const formated = arg.formated
-    const db = getDatabase()
+    const db = arg.db ?? getDatabase()
     const aiModel = arg.aiModel
     const currentChar = getCurrentCharacter()
     const maxTokens = arg.maxTokens
@@ -1493,7 +1526,7 @@ async function requestWebLLM(arg:RequestDataArgumentExtended):Promise<requestDat
         typical_p: db.ooba.typical_p,
     } as any
 
-    const finalParams = applyAdditionalParameters(transformersParams, {}, getAdditionalParameters(arg.aiModel))
+    const finalParams = applyAdditionalParameters(transformersParams, {}, getAdditionalParameters(arg.aiModel, arg.db))
 
     const v = await runTransformers(prompt, realModel, finalParams)
     return {

@@ -1,4 +1,4 @@
-import { getDatabase } from 'src/ts/storage/database.svelte'
+import { getDatabase, type Database } from 'src/ts/storage/database.svelte'
 import { parseAdditionalParamJsonValue } from './additionalParams'
 
 export type LLMParameter =
@@ -44,8 +44,8 @@ export function setObjectValue<T>(obj: T, key: string, value: any): T {
     return obj
 }
 
-export function getAdditionalParameters(aiModel?: string): [string, string][] {
-    const db = getDatabase()
+export function getAdditionalParameters(aiModel?: string, dbOverride?: Database): [string, string][] {
+    const db = dbOverride ?? getDatabase()
 
     if (!aiModel) {
         return []
@@ -142,9 +142,11 @@ export function applyParameters(
     arg: {
         ignoreTopKIfZero?: boolean
         modelId:string
+        /** Run against this database instead of the active one. */
+        db?: Database
     },
 ): Record<string, any> {
-    const db = getDatabase()
+    const db = arg.db ?? getDatabase()
     const reasoningDisabledEffort = parameters.includes('reasoning_effort_none') ? 'none' : 'minimal'
     const reasoningMinEffort = parameters.includes('reasoning_effort_min_medium') ? 'medium' : 'low'
     const supportsXHighReasoning = parameters.includes('reasoning_effort_xhigh')
@@ -176,7 +178,9 @@ export function applyParameters(
         return ['low', 'medium', 'high'][verbosity] ?? 'medium'
     }
 
-    if (db.seperateParametersEnabled && (modelMode !== 'model' || db.seperateParametersByModel)) {
+    // A preset-scoped call (Director–Writer) is fully defined by its own preset, so the
+    // global separate-parameters section must not override it.
+    if (!arg.db && db.seperateParametersEnabled && (modelMode !== 'model' || db.seperateParametersByModel)) {
         let sepParams = db.seperateParameters[modelMode]
         if (db.seperateParametersByModel){
             sepParams = db.seperateParameters.overrides[arg.modelId]
