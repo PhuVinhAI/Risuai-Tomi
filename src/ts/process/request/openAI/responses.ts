@@ -354,7 +354,11 @@ async function buildResponsesBody(arg:RequestDataArgumentExtended):Promise<Recor
     if(body.tools.length === 0){
         delete body.tools
     }
-    if(arg.modelInfo.parameters.includes('reasoning_effort' as any)){
+    //Custom endpoints always advertise reasoning_effort, so only ask for a summary once a level is
+    //actually being sent — a non-reasoning endpoint would reject the reasoning block otherwise.
+    const requestsReasoningSummary = arg.modelInfo.parameters.includes('reasoning_effort' as any)
+        && (!arg.modelInfo.parameters.includes('reasoning_effort_custom') || !!body.reasoning?.effort)
+    if(requestsReasoningSummary){
         body.reasoning ??= {}
         body.reasoning.summary ??= 'auto'
     }

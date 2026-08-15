@@ -14,6 +14,7 @@ export type LLMParameter =
     | 'reasoning_effort_min_medium'
     | 'reasoning_effort_none'
     | 'reasoning_effort_xhigh'
+    | 'reasoning_effort_custom'
     | 'thinking_tokens'
     | 'verbosity'
 
@@ -23,6 +24,7 @@ const reasoningCapabilityParameters: LLMParameter[] = [
     'reasoning_effort_min_medium',
     'reasoning_effort_none',
     'reasoning_effort_xhigh',
+    'reasoning_effort_custom',
 ]
 
 export function isReasoningCapabilityParameter(parameter: LLMParameter): boolean {
@@ -150,6 +152,9 @@ export function applyParameters(
     const reasoningDisabledEffort = parameters.includes('reasoning_effort_none') ? 'none' : 'minimal'
     const reasoningMinEffort = parameters.includes('reasoning_effort_min_medium') ? 'medium' : 'low'
     const supportsXHighReasoning = parameters.includes('reasoning_effort_xhigh')
+    //Endpoints Risu cannot introspect (Custom API, custom models) carry the effort level as the string
+    //the user picked instead of an index into Risu's fixed scale, and send nothing while it is empty.
+    const usesCustomReasoningLevels = parameters.includes('reasoning_effort_custom')
 
     function getEffort(effort: number, disabledEffort: 'minimal' | 'none' = 'minimal', supportsXHigh = false, minEffort: 'low' | 'medium' = 'low') {
         switch (effort) {
@@ -249,6 +254,14 @@ export function applyParameters(
                     break
                 }
                 case 'reasoning_effort': {
+                    if (usesCustomReasoningLevels) {
+                        const customEffort = sepParams.custom_reasoning_effort?.trim()
+                        if (!customEffort) {
+                            continue
+                        }
+                        value = customEffort
+                        break
+                    }
                     value = getEffort(
                         sepParams.reasoning_effort,
                         reasoningDisabledEffort,
@@ -311,6 +324,14 @@ export function applyParameters(
                 break
             }
             case 'reasoning_effort': {
+                if (usesCustomReasoningLevels) {
+                    const customEffort = db.customReasoningEffort?.trim()
+                    if (!customEffort) {
+                        continue
+                    }
+                    value = customEffort
+                    break
+                }
                 value = getEffort(
                     db.reasoningEffort,
                     reasoningDisabledEffort,

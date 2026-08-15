@@ -18,6 +18,7 @@ import { DBState } from "../stores.svelte"
 import { customProviderStore, pluginV2 } from "../plugins/plugins.svelte"
 import { get } from "svelte/store"
 import { customV3ProviderMetaStore } from "../plugins/apiV3/v3.svelte"
+import type { LLMParameter } from "../process/request/shared"
 
 // Re-export types for backwards compatibility
 export { LLMFlags, LLMProvider, LLMFormat, LLMTokenizer, ProviderNames, OpenAIParameters, ClaudeParameters }
@@ -562,7 +563,7 @@ export const LLMModels: LLMModel[] = [
         format: LLMFormat.OpenAICompatible,
         flags: [LLMFlags.hasFullSystemPrompt, LLMFlags.hasStreaming],
         recommended: true,
-        parameters: ['temperature', 'top_p', 'frequency_penalty', 'presence_penalty', 'repetition_penalty', 'min_p', 'top_a', 'top_k', 'thinking_tokens'],
+        parameters: ['temperature', 'top_p', 'frequency_penalty', 'presence_penalty', 'repetition_penalty', 'min_p', 'top_a', 'top_k', 'thinking_tokens', 'reasoning_effort', 'reasoning_effort_custom'],
         tokenizer: LLMTokenizer.Unknown
     },
     {
@@ -772,8 +773,12 @@ export async function registerModelDynamic(){
 //testing purpose only, not used in production
 globalThis.registerModelDynamic = registerModelDynamic
 
-export function getModelInfo(id?: string | null): LLMModel{
+//Only OpenAI shaped endpoints take a top level reasoning_effort field.
+function supportsCustomReasoningEffort(format:LLMFormat):boolean{
+    return format === LLMFormat.OpenAICompatible || format === LLMFormat.OpenAIResponseAPI
+}
 
+export function getModelInfo(id?: string | null): LLMModel{
     const db = getDatabase()
     if(!id){
         return {
@@ -794,6 +799,12 @@ export function getModelInfo(id?: string | null): LLMModel{
     if(found){
         if(db.enableCustomFlags){
             found.flags = db.customFlags
+        }
+
+        //reasoning_effort is an OpenAI family field, so Custom API only offers it while it points at
+        //an OpenAI shaped endpoint. The format lives on the preset, not on this static entry.
+        if(found.id === 'reverse_proxy' && !supportsCustomReasoningEffort(db.customAPIFormat ?? LLMFormat.OpenAICompatible)){
+            found.parameters = found.parameters.filter((parameter) => parameter !== 'reasoning_effort' && parameter !== 'reasoning_effort_custom')
         }
 
         return found
@@ -833,6 +844,12 @@ export function getModelInfo(id?: string | null): LLMModel{
         const customModels = db?.customModels || []
         const found = customModels.find((model) => model.id === id)
         if(found){
+            //Custom endpoints get the effort level as a user picked string, defaulting to empty so
+            //nothing is sent to endpoints that do not understand reasoning_effort.
+            const parameters:LLMParameter[] = ['temperature', 'top_p', 'frequency_penalty', 'presence_penalty', 'repetition_penalty', 'min_p', 'top_a', 'top_k', 'thinking_tokens']
+            if(supportsCustomReasoningEffort(found.format)){
+                parameters.push('reasoning_effort', 'reasoning_effort_custom')
+            }
             return {
                 id: found.id,
                 name: found.name,
@@ -842,7 +859,7 @@ export function getModelInfo(id?: string | null): LLMModel{
                 provider: LLMProvider.AsIs,
                 format: found.format,
                 flags: found.flags,
-                parameters: ['temperature', 'top_p', 'frequency_penalty', 'presence_penalty', 'repetition_penalty', 'min_p', 'top_a', 'top_k', 'thinking_tokens'],
+                parameters: parameters,
                 tokenizer: found.tokenizer
             }
         }

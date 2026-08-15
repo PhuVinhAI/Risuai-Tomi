@@ -25,6 +25,7 @@ const mocks = vi.hoisted(() => ({
         proxyKey: 'proxy-key',
         requestRetrys: 0,
         reasoningEffort: 2,
+        customReasoningEffort: '',
         seperateParametersEnabled: false,
         simplifiedToolUse: false,
         strictJsonSchema: true,
@@ -191,6 +192,7 @@ describe('OpenAI Responses API helpers', () => {
         mocks.db.nanogptRequestModel = 'nanogpt-model'
         mocks.db.nanogptUseSubscriptionEndpoint = false
         mocks.db.reasoningEffort = 2
+        mocks.db.customReasoningEffort = ''
         mocks.db.simplifiedToolUse = false
         mocks.db.autofillRequestUrl = false
     })
@@ -285,6 +287,32 @@ describe('OpenAI Responses API helpers', () => {
         }))
 
         expect(body.reasoning).toEqual({ effort: 'xhigh', summary: 'auto' })
+    })
+
+    it('sends the level a custom endpoint was given verbatim', async () => {
+        mocks.db.customReasoningEffort = 'max'
+
+        const body = await __testResponsesAPI.buildResponsesBody(baseArg({
+            modelInfo: {
+                ...baseArg().modelInfo,
+                parameters: ['reasoning_effort', 'reasoning_effort_custom'],
+            },
+        }))
+
+        expect(body.reasoning).toEqual({ effort: 'max', summary: 'auto' })
+    })
+
+    it('omits reasoning for a custom endpoint while the level is off', async () => {
+        mocks.db.customReasoningEffort = ''
+
+        const body = await __testResponsesAPI.buildResponsesBody(baseArg({
+            modelInfo: {
+                ...baseArg().modelInfo,
+                parameters: ['reasoning_effort', 'reasoning_effort_custom'],
+            },
+        }))
+
+        expect(body.reasoning).toBeUndefined()
     })
 
     it('does not request reasoning summaries for Responses non-reasoning models', async () => {

@@ -4,6 +4,8 @@
     import { language } from "src/lang";
     import SliderInput from "../UI/GUI/SliderInput.svelte";
     import SegmentedControl from "../UI/GUI/SegmentedControl.svelte";
+    import SelectInput from "../UI/GUI/SelectInput.svelte";
+    import OptionInput from "../UI/GUI/OptionInput.svelte";
     import ClaudeThinkingSeparateParams from "../Setting/Pages/ClaudeThinkingSeparateParams.svelte";
     import type { SeparateParameters } from "src/ts/storage/database.svelte";
     import { downloadFile } from "src/ts/globalApi.svelte";
@@ -37,11 +39,24 @@
     let modelInfo = $derived(getModelInfo(effectiveModel))
     let hasTemperature = $derived(modelInfo.parameters.includes('temperature'))
     let hasReasoningEffort = $derived(
-        modelInfo.parameters.includes('reasoning_effort') ||
-        modelInfo.parameters.includes('reasoning_effort_min_medium') ||
-        modelInfo.parameters.includes('reasoning_effort_none') ||
-        modelInfo.parameters.includes('reasoning_effort_xhigh')
+        !modelInfo.parameters.includes('reasoning_effort_custom') && (
+            modelInfo.parameters.includes('reasoning_effort') ||
+            modelInfo.parameters.includes('reasoning_effort_min_medium') ||
+            modelInfo.parameters.includes('reasoning_effort_none') ||
+            modelInfo.parameters.includes('reasoning_effort_xhigh')
+        )
     )
+    let hasCustomReasoningEffort = $derived(modelInfo.parameters.includes('reasoning_effort_custom'))
+    const customReasoningEffortOptions = [
+        { value: '', label: 'Off (do not send)' },
+        { value: 'minimal', label: 'Minimal' },
+        { value: 'none', label: 'None' },
+        { value: 'low', label: 'Low' },
+        { value: 'medium', label: 'Medium' },
+        { value: 'high', label: 'High' },
+        { value: 'xhigh', label: 'XHigh' },
+        { value: 'max', label: 'Max' },
+    ]
     let hasVerbosity = $derived(modelInfo.parameters.includes('verbosity'))
     const verbosityOptions = [
         { value: 0, label: 'Low' },
@@ -60,6 +75,9 @@
     ])
 
     $effect(() => {
+        if (hasCustomReasoningEffort) {
+            value.custom_reasoning_effort ??= ''
+        }
         if (!modelInfo.parameters.includes('reasoning_effort_xhigh') && value.reasoning_effort === 3) {
             value.reasoning_effort = 2
         }
@@ -91,6 +109,14 @@
 {#if hasReasoningEffort}
 <span class="text-textcolor">Reasoning Effort</span>
 <SegmentedControl bind:value={value.reasoning_effort} options={reasoningEffortOptions} />
+{/if}
+{#if hasCustomReasoningEffort}
+<span class="text-textcolor">Reasoning Effort</span>
+<SelectInput bind:value={value.custom_reasoning_effort}>
+    {#each customReasoningEffortOptions as level}
+        <OptionInput value={level.value}>{level.label}</OptionInput>
+    {/each}
+</SelectInput>
 {/if}
 {#if hasVerbosity}
 <span class="text-textcolor">{'Verbosity'}</span>

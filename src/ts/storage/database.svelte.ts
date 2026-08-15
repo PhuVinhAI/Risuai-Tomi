@@ -596,6 +596,7 @@ export function setDatabase(data:Database){
     data.showPromptComparison ??= false
     data.OaiCompAPIKeys ??= {}
     data.reasoningEffort ??= 0
+    data.customReasoningEffort ??= ''
     data.verbosity ??= 1
     data.hypaV3Presets ??= [
         createHypaV3Preset("Default", {
@@ -1154,6 +1155,8 @@ export interface Database{
     OaiCompAPIKeys: {[key:string]:string}
     inlayErrorResponse:boolean
     reasoningEffort:number
+    /** Effort level for endpoints Risu cannot introspect, sent verbatim. Empty means do not send. */
+    customReasoningEffort:string
     bulkEnabling:boolean
     showTranslationLoading: boolean
     showDeprecatedTriggerV1:boolean
@@ -1305,6 +1308,7 @@ export interface SeparateParameters{
     frequency_penalty?:number
     presence_penalty?:number
     reasoning_effort?:number
+    custom_reasoning_effort?:string
     thinking_tokens?:number
     thinking_type?: 'off' | 'budget' | 'adaptive'
     deepseek_thinking_type?: 'off' | 'enabled'
@@ -1675,6 +1679,7 @@ export interface botPreset{
     image?:string
     regex?:customscript[]
     reasonEffort?:number
+    customReasoningEffort?:string
     thinkingTokens?:number
     thinkingType?: 'off' | 'budget' | 'adaptive'
     deepseekThinkingType?: 'off' | 'enabled'
@@ -2133,6 +2138,7 @@ export function saveCurrentPreset(){
         regex: db.presetRegex,
         image: pres?.[db.botPresetsId]?.image ?? '',
         reasonEffort: db.reasoningEffort ?? 0,
+        customReasoningEffort: db.customReasoningEffort ?? '',
         thinkingTokens: db.thinkingTokens ?? null,
         thinkingType: db.thinkingType ?? 'budget',
         deepseekThinkingType: db.deepseekThinkingType ?? 'off',
@@ -2269,6 +2275,7 @@ export function setPreset(db:Database, newPres: botPreset){    db.apiType = newP
     db.enableCustomFlags = newPres.enableCustomFlags ?? false
     db.presetRegex = newPres.regex ?? []
     db.reasoningEffort = newPres.reasonEffort ?? 0
+    db.customReasoningEffort = newPres.customReasoningEffort ?? ''
     db.thinkingTokens = newPres.thinkingTokens ?? null
     db.thinkingType = newPres.thinkingType ?? 'budget'
     db.deepseekThinkingType = newPres.deepseekThinkingType ?? 'off'

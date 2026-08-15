@@ -271,10 +271,12 @@ export const modelSpecificParameterItems: SettingItem[] = [
         fallbackLabel: 'Reasoning Effort',
         bindKey: 'reasoningEffort',
         condition: (ctx) =>
-            ctx.modelInfo.parameters.includes('reasoning_effort') ||
-            ctx.modelInfo.parameters.includes('reasoning_effort_min_medium') ||
-            ctx.modelInfo.parameters.includes('reasoning_effort_none') ||
-            ctx.modelInfo.parameters.includes('reasoning_effort_xhigh'),
+            !ctx.modelInfo.parameters.includes('reasoning_effort_custom') && (
+                ctx.modelInfo.parameters.includes('reasoning_effort') ||
+                ctx.modelInfo.parameters.includes('reasoning_effort_min_medium') ||
+                ctx.modelInfo.parameters.includes('reasoning_effort_none') ||
+                ctx.modelInfo.parameters.includes('reasoning_effort_xhigh')
+            ),
         options: {
             segmentOptions: [
                 { value: -1, label: 'Minimal', condition: (ctx) => !ctx.modelInfo.parameters.includes('reasoning_effort_none') && !ctx.modelInfo.parameters.includes('reasoning_effort_min_medium') },
@@ -286,6 +288,31 @@ export const modelSpecificParameterItems: SettingItem[] = [
             ]
         },
         keywords: ['reasoning', 'effort', 'xhigh'],
+    },
+    {
+        //Custom endpoints cannot be introspected, so the level is sent verbatim and defaults to off.
+        id: 'params.customReasoningEffort',
+        type: 'select',
+        fallbackLabel: 'Reasoning Effort',
+        bindKey: 'customReasoningEffort',
+        condition: (ctx) => ctx.modelInfo.parameters.includes('reasoning_effort_custom'),
+        //No top margin on the label and 1rem under the control, so the row keeps the same rhythm as
+        //the segmented parameter rows around it.
+        classes: '',
+        options: {
+            inputClassName: 'mb-4',
+            selectOptions: [
+                { value: '', label: 'Off (do not send)' },
+                { value: 'minimal', label: 'Minimal' },
+                { value: 'none', label: 'None' },
+                { value: 'low', label: 'Low' },
+                { value: 'medium', label: 'Medium' },
+                { value: 'high', label: 'High' },
+                { value: 'xhigh', label: 'XHigh' },
+                { value: 'max', label: 'Max' },
+            ]
+        },
+        keywords: ['reasoning', 'effort', 'custom', 'max', 'xhigh'],
     },
     {
         id: 'params.verbosity',
@@ -325,6 +352,7 @@ export const allBasicParameterItems: SettingItem[] = [
     modelSpecificParameterItems.find(i => i.id === 'params.topA')!,
     modelSpecificParameterItems.find(i => i.id === 'params.repetitionPenalty')!,
     modelSpecificParameterItems.find(i => i.id === 'params.reasoningEffort')!,
+    modelSpecificParameterItems.find(i => i.id === 'params.customReasoningEffort')!,
     modelSpecificParameterItems.find(i => i.id === 'params.verbosity')!,
     penaltyParameterItems.find(i => i.id === 'params.topP')!,
     penaltyParameterItems.find(i => i.id === 'params.frequencyPenalty')!,
