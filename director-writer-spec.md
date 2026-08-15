@@ -71,8 +71,9 @@ Danh sách này vừa là hướng dẫn cho Director vừa là luật validate 
 
 `[SITUATION]`, `[FACTS]`, `[CHARACTER]` là FACT. `[DIRECTION]` là DIRECTION. `[FORBIDDEN]` là chặn.
 
-`[WRITING STYLE]` luôn bắt đầu bằng đúng một trong ba dòng: `BASE: PREVIOUS WRITER`,
-`BASE: GREETING`, hoặc `BASE: NONE`. Thứ tự ưu tiên baseline:
+`[WRITING STYLE]` luôn bắt đầu bằng đúng một trong ba câu văn xuôi: `The writing style baseline is
+the previous Writer reply.`, `The writing style baseline is the greeting.`, hoặc `There is no
+writing style baseline.` Thứ tự ưu tiên baseline:
 
 1. Phản hồi gần nhất do Writer của pipeline sinh ra và vẫn còn bật trong history của nhân vật đó.
 2. Greeting/first message đang được chọn, chỉ khi chưa có phản hồi Writer.
@@ -84,12 +85,16 @@ markup nhấn mạnh, mật độ giác quan, cùng pattern số lượng/vị t
 cảnh nhưng ngừng làm nguồn style ngay khi đã có phản hồi Writer.
 
 Nếu tin user mới nhất yêu cầu rõ một thay đổi về độ dài, tone, POV, format hoặc cách đặt media,
-Director ghi nó dưới `USER OVERRIDE` và chỉ đổi đúng chiều được yêu cầu; các chiều còn lại tiếp tục
-theo baseline. Nội dung diễn biến bình thường không được coi là yêu cầu style. Director cấm phê
+Director mô tả yêu cầu đó bằng một câu văn hoàn chỉnh và chỉ đổi đúng chiều được yêu cầu; các chiều
+còn lại tiếp tục theo baseline. Nội dung diễn biến bình thường không được coi là yêu cầu style. Director cấm phê
 bình, “cải thiện”, hoặc thêm gu riêng từ card, history khác, thể loại hay sở thích của chính nó.
 
 ### Quy tắc nội dung packet
 
+- Chỉ header dùng ký hiệu ngoặc vuông để validator phân section. Nội dung dưới mỗi header phải là
+  đoạn văn tiếng Anh với câu hoàn chỉnh; cấm bullet, danh sách đánh số, nhãn kèm dấu hai chấm, bảng,
+  slash shorthand, ngoặc giải thích lồng nhau, mũi tên và ví dụ markup trang trí. Style markup chỉ
+  được mô tả tác dụng bằng văn xuôi, không copy ký hiệu sang packet để Writer nhỏ bắt chước sai.
 - Nhãn và toàn bộ lời mô tả/chỉ dẫn trong packet viết tiếng Anh. Nội dung trích dẫn **giữ nguyên
   ngôn ngữ gốc**, không dịch. Packet bị localize sẽ fail validation và Director phải retry.
 - Tên riêng, câu trích nguyên văn, vị trí, ai đang biết chuyện gì — ghi y nguyên, cấm diễn giải.
@@ -113,8 +118,8 @@ user:   <nguyên văn tin nhắn user>
 ```
 
 Danh sách asset key ở system message sau packet luôn là allowlist authoritative, kể cả Writer preset
-có `customimageinstruction`. Custom instruction vẫn quyết định số lượng/vị trí ảnh nhưng không được
-thêm, dịch, rút gọn hoặc thay key; Director cũng không được tắt protocol này trong packet.
+có `customimageinstruction`. Custom instruction vẫn quyết định cú pháp tag, số lượng và vị trí ảnh
+nhưng không được thêm, dịch, rút gọn hoặc thay key; Director cũng không được tắt protocol này trong packet.
 
 Auto-strip khi preset có tick Writer — app tự bỏ, user không phải dựng template trống:
 
@@ -123,6 +128,11 @@ Auto-strip khi preset có tick Writer — app tự bỏ, user không phải dự
 
 Giữ mấy cái đó là bắt buộc, không phải tùy chọn. Failure mode nặng nhất mà nghiên cứu tìm được
 là ràng buộc toàn cục bị rơi lúc chia việc.
+
+Trong lúc Director chạy, raw stream (bao gồm reasoning mà provider công khai và packet đang viết)
+được hiển thị trong vùng trạng thái dưới input. Nó chỉ là preview, không được thêm vào chat history;
+nút Stop hủy cùng `AbortController` và đóng stream ngay. Khi Director hoàn tất, chỉ packet đã normalize
+và validate mới được chuyển cho Writer.
 
 ## Prompt cho Director
 

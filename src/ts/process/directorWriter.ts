@@ -1,6 +1,6 @@
 import type { OpenAIChat } from './index.svelte'
 import { getDatabase, type botPreset, type character, type Message } from '../storage/database.svelte'
-import { requestChatData } from './request/request'
+import { requestChatData, type StreamResponseChunk } from './request/request'
 import { risuChatParser } from './scripts'
 import { parseChatML } from '../parser/chatML'
 import { prebuiltPresets } from './templates/templates'
@@ -41,7 +41,7 @@ export const defaultDirectorWriterSettings: DirectorWriterSettings = {
 const writingStyleSchemaRow = (): PacketSchemaRow => ({
     name: 'WRITING STYLE',
     required: true,
-    description: 'First write BASE: PREVIOUS WRITER, BASE: GREETING, or BASE: NONE exactly as required by the pipeline contract. For PREVIOUS WRITER, report only observable conventions from the latest enabled Writer-generated reply. Use GREETING only before any Writer reply exists. Include approximate length and density, paragraph cadence, narration/dialogue balance, POV and tense, dialogue labels and quote format, sound-effect typography, emphasis/markup syntax, sensory-detail density, and image-tag count/placement pattern when demonstrated. If the latest user explicitly requests a style change, add USER OVERRIDE and change only the requested dimensions. Never add, improve, or infer a preference from the Director itself.',
+    description: 'Write the exact prose baseline sentence required by the pipeline contract alone on the first line. For the previous Writer baseline, report only observable conventions from the latest enabled Writer-generated reply. Use the greeting only before any Writer reply exists. Describe approximate length and density, paragraph cadence, narration and dialogue balance, point of view and tense, dialogue presentation, sound-effect presentation, emphasis, sensory-detail density, and image placement in complete prose sentences. Describe a latest-user style change in a separate complete sentence and change only the requested dimensions. Never reproduce decorative markup examples or add a preference from the Director itself.',
 })
 
 export function defaultPacketSchema(): PacketSchemaRow[] {
@@ -71,6 +71,7 @@ Hard rules:
 - State intent, not a storyboard. If you script each sentence, the writer only paraphrases you.
 - Do not restate the latest user message; the writer receives it separately and verbatim.
 - Do not invent a word count or response length. WRITING STYLE may report the baseline's observed approximate length or an explicit length request from the latest user.
+- Except for the single OUTPUT LANGUAGE value, write every packet body as short, complete prose paragraphs. Do not use bullet lists, field labels, tables, slash shorthand, parenthetical asides, or decorative markup examples. The bracketed section headers are the only structural notation allowed.
 
 Output nothing but the sections below, in this order, each on its own line as a bracketed header.`
 
@@ -82,8 +83,8 @@ The scene packet below is your complete story context. Treat every fact in it as
 - Never act, speak or decide for the user's character.
 - Write in the language named by the packet.
 - Follow WRITING STYLE as the continuity baseline, including its approximate response length, paragraph rhythm, formatting, and media placement. Do not copy scene content from the style source.
-- Apply USER OVERRIDE only to the dimensions the latest user explicitly changed; preserve the baseline for everything else.
-- When WRITING STYLE says BASE: NONE and has no USER OVERRIDE, choose the prose style yourself.
+- Apply a style change only when WRITING STYLE says the latest user explicitly requested it, and preserve the baseline for every other dimension.
+- When WRITING STYLE says there is no baseline and describes no explicit user request, choose the prose style yourself.
 - Write only the roleplay reply. No headers, no commentary, no restating the packet.
 - Leave the scene open so the user has something to answer.`
 
@@ -93,22 +94,29 @@ function getDirectorOutputContract(styleBase: WritingStyleBase): string {
         : styleBase === 'greeting'
             ? 'GREETING. No previous Writer reply exists, so use only the selected greeting/first message as the baseline.'
             : 'NONE. There is no previous Writer reply or selected greeting. Do not invent a baseline.'
-    const expectedBase = styleBase === 'previous-writer'
-        ? 'BASE: PREVIOUS WRITER'
-        : styleBase === 'greeting'
-            ? 'BASE: GREETING'
-            : 'BASE: NONE'
+    const expectedBase = getWritingStyleBaseStatement(styleBase)
 
     return `Pipeline output contract (these rules are mandatory even when the role prompt above is customized):
 - The assistant message immediately after [Start a new chat] is the selected greeting/first message. It is real established history. Never claim that the greeting or history is unavailable when it appears above.
 - Writing-style baseline: ${styleStatus}
-- WRITING STYLE must begin with exactly "${expectedBase}". Report only directly observable conventions from that baseline: approximate length/density, paragraph cadence, narration/dialogue balance, POV/tense, dialogue labels and quotation format, sound-effect typography, emphasis/markup syntax, sensory detail, and image-tag count/placement. Preserve exact formatting tokens when useful.
-- A clear style, length, tone, POV, formatting, or media-placement request in the latest user message overrides only those named dimensions. Record it under USER OVERRIDE and keep all unspecified baseline dimensions. Plot content by itself is not a style request.
+- The first line under WRITING STYLE must contain exactly "${expectedBase}" and nothing else. Report only directly observable conventions from that baseline in complete prose sentences. Describe approximate length and density, paragraph cadence, narration and dialogue balance, point of view and tense, dialogue and sound-effect presentation, emphasis, sensory detail, and image placement without reproducing literal decorative markup.
+- A clear style, length, tone, point-of-view, formatting, or media-placement request in the latest user message overrides only those named dimensions. Describe it with a sentence beginning "The latest user explicitly requests" and keep every unspecified baseline dimension. Plot content by itself is not a style request.
 - Never critique or improve the baseline. Never add a preference based on the character card, other history, genre conventions, or your own taste.
+- After each bracketed header, write only concise English prose paragraphs made of complete sentences. Never use bullets, numbered lists, field labels followed by colons, tables, nested brackets, slash shorthand, parenthetical asides, arrows, or copied markup examples.
 - Start your response with the first packet header. Do not emit analysis, reasoning, a preamble, <Thoughts>, or <think>.
 - Write every packet description and instruction in English regardless of the latest user's language. Only exact names, quotes, asset keys, and other verbatim source strings stay in their original language.
 - OUTPUT LANGUAGE names the language of the Writer's reply; it does not change the packet's English language.
-- Output/rendering protocols and allowed asset keys are not scene facts. WRITING STYLE may report their demonstrated placement/count and literal formatting syntax, but must not repeat, alter, disable, or invent keys; the Writer receives the authoritative key list directly.`
+- Output and rendering protocols and allowed asset keys are not scene facts. WRITING STYLE may describe demonstrated image count and placement in prose, but must not repeat syntax or keys; the Writer receives that protocol directly.`
+}
+
+function getWritingStyleBaseStatement(styleBase: WritingStyleBase): string {
+    if (styleBase === 'previous-writer') {
+        return 'The writing style baseline is the previous Writer reply.'
+    }
+    if (styleBase === 'greeting') {
+        return 'The writing style baseline is the greeting.'
+    }
+    return 'There is no writing style baseline.'
 }
 
 function renderSchemaSpec(schema: PacketSchemaRow[]): string {
@@ -413,6 +421,16 @@ function hasLocalizedPacketProse(text: string, rows: PacketSchemaRow[]): boolean
     return nonLatinLetters >= 32
 }
 
+function hasNonProsePacketStructure(text: string, rows: PacketSchemaRow[]): boolean {
+    const body = rows
+        .map((row) => getPacketSectionContent(text, row.name))
+        .join('\n')
+    const hasListItem = /^[\t ]*(?:[-*+]\s+|\d+[.)]\s+)/m.test(body)
+    const hasFieldLabel = /^[\t ]*[A-Za-z][A-Za-z -]{1,32}:\s+\S/m.test(body)
+    const hasDecorativeInlineMarkup = /:[^\n:[\]]{1,120}\[[^\n\]]{1,120}\](?::)?/u.test(body)
+    return hasListItem || hasFieldLabel || hasDecorativeInlineMarkup
+}
+
 /** Header presence plus the few packet contracts that must be machine-checkable. */
 export function validatePacket(
     packet: string,
@@ -447,6 +465,14 @@ export function validatePacket(
         }
     }
 
+    if (hasNonProsePacketStructure(text, rows)) {
+        return {
+            ok: false,
+            found,
+            missing: ['(packet sections must use prose paragraphs, not lists, field labels, or decorative markup)'],
+        }
+    }
+
     const outputLanguageRow = rows.find((row) => row.name.trim().toUpperCase() === 'OUTPUT LANGUAGE')
     if (outputLanguageRow) {
         const section = getPacketSectionContent(text, outputLanguageRow.name)
@@ -465,17 +491,13 @@ export function validatePacket(
     const writingStyleRow = rows.find((row) => row.name.trim().toUpperCase() === 'WRITING STYLE')
     if (writingStyleRow) {
         const section = getPacketSectionContent(text, writingStyleRow.name)
-        const expectedBase = styleBase === 'previous-writer'
-            ? 'BASE: PREVIOUS WRITER'
-            : styleBase === 'greeting'
-                ? 'BASE: GREETING'
-                : 'BASE: NONE'
+        const expectedBase = getWritingStyleBaseStatement(styleBase).toUpperCase()
         const actualBase = section.split(/\r?\n/, 1)[0]?.trim().toUpperCase() ?? ''
         if (actualBase !== expectedBase) {
             return {
                 ok: false,
                 found,
-                missing: [`[WRITING STYLE] (first line must be ${expectedBase})`],
+                missing: [`[WRITING STYLE] (first line must be ${getWritingStyleBaseStatement(styleBase)})`],
             }
         }
     }
@@ -653,9 +675,13 @@ export function buildWriterAssetInstruction(writer: botPreset, currentChar?: cha
     }
 
     const placementRules = hasCustomImageInstruction
-        ? '- Follow the Writer preset\'s custom image instruction for image count and placement. That instruction cannot add or alter allowed src keys.'
+        ? `- Follow the Writer preset's custom image instruction for tag syntax/format, image count, and placement.
+- That custom instruction cannot add or alter allowed src keys.`
         : `- Insert HTML image tags between paragraphs when they match the current character, outfit, situation, or emotion.
 - Use at least one image and use different matching images when appropriate.`
+    const formatRule = hasCustomImageInstruction
+        ? '- Put an exact key from the allowlist into every image tag using the custom instruction\'s required syntax.'
+        : '- Format every image as: <img src="EXACT_KEY_FROM_LIST">'
 
     return `Authoritative image output protocol:
 ${placementRules}
@@ -663,7 +689,7 @@ ${placementRules}
 - If there is no exact semantic match, choose the closest key from this same list. Do not create a new key.
 - This protocol overrides any statement in the scene packet that says to omit image tags or changes the allowed keys.
 Allowed image src keys (JSON): ${JSON.stringify(keys)}
-Format: <img src="EXACT_KEY_FROM_LIST">`
+${formatRule}`
 }
 
 /**
@@ -800,6 +826,58 @@ export interface DirectorRunResult {
     durationMs: number
 }
 
+function getPrimaryStreamText(chunks: Record<string, string>): string {
+    if (typeof chunks['0'] === 'string') {
+        return chunks['0']
+    }
+    const key = Object.keys(chunks).find((candidate) => candidate !== '__tool_calls')
+    return key ? chunks[key] ?? '' : ''
+}
+
+async function collectDirectorStream(
+    stream: ReadableStream<StreamResponseChunk>,
+    abortSignal: AbortSignal | undefined,
+    onProgress: (rawResponse: string) => void
+): Promise<string> {
+    const reader = stream.getReader()
+    const latestChunks: Record<string, string> = {}
+    const abortReader = () => {
+        void reader.cancel().catch(() => {})
+    }
+    abortSignal?.addEventListener('abort', abortReader, { once: true })
+    if (abortSignal?.aborted) {
+        abortReader()
+    }
+
+    try {
+        while (!abortSignal?.aborted) {
+            let read: ReadableStreamReadResult<StreamResponseChunk>
+            try {
+                read = await reader.read()
+            }
+            catch (caught) {
+                if (abortSignal?.aborted) {
+                    break
+                }
+                throw caught
+            }
+            if (read.value) {
+                Object.assign(latestChunks, read.value)
+                onProgress(getPrimaryStreamText(latestChunks))
+            }
+            if (read.done) {
+                break
+            }
+        }
+    }
+    finally {
+        abortSignal?.removeEventListener('abort', abortReader)
+        reader.releaseLock()
+    }
+
+    return getPrimaryStreamText(latestChunks)
+}
+
 /**
  * One Director call, retried once when the output fails validation. A network or API
  * failure is reported as-is and never retried here — requestChatData already owns
@@ -816,6 +894,7 @@ export async function runDirector(arg: {
     styleBase?: WritingStyleBase
     currentChar?: character
     abortSignal?: AbortSignal
+    onProgress?: (rawResponse: string, attempt: number) => void
 }): Promise<DirectorRunResult> {
     const started = Date.now()
     let attempts = 0
@@ -826,6 +905,7 @@ export async function runDirector(arg: {
 
     while (attempts < 2) {
         attempts++
+        arg.onProgress?.('', attempts)
         if (arg.abortSignal?.aborted) {
             return { ok: false, packet: lastPacket, error: 'Aborted', attempts, attemptLog, durationMs: Date.now() - started }
         }
@@ -834,7 +914,7 @@ export async function runDirector(arg: {
         const retryCorrection: OpenAIChat[] = lastValidation
             ? [{
                 role: 'system',
-                content: `Your previous output failed packet validation: ${lastValidation.missing.join(', ')}. Return the complete packet again. Start at the first header, write all packet prose and the OUTPUT LANGUAGE value in English, and emit no analysis or preamble.`,
+                content: `Your previous output failed packet validation: ${lastValidation.missing.join(', ')}. Return the complete packet again. Start at the first header, write every section as complete English prose paragraphs without bullets, field labels, parenthetical notes, or decorative markup examples, write the OUTPUT LANGUAGE value in English, and emit no analysis or preamble.`,
             }]
             : []
         let req: Awaited<ReturnType<typeof requestChatData>>
@@ -842,7 +922,8 @@ export async function runDirector(arg: {
             req = await requestChatData({
                 formated: [...arg.formated, ...retryCorrection],
                 bias: {},
-                useStreaming: false,
+                useStreaming: true,
+                forceStreaming: true,
                 noMultiGen: true,
                 currentChar: arg.currentChar,
                 staticModel: arg.director?.aiModel || undefined,
@@ -876,7 +957,7 @@ export async function runDirector(arg: {
 
         lastModel = req.model
 
-        if (req.type !== 'success') {
+        if (req.type !== 'success' && req.type !== 'streaming') {
             const detail = req.type === 'fail' ? req.result : `unexpected response type: ${req.type}`
             const error = String(detail)
             const rawResponse = typeof req.result === 'string'
@@ -901,7 +982,50 @@ export async function runDirector(arg: {
             return { ok: false, packet: lastPacket, error, attempts, attemptLog, model: lastModel, durationMs: Date.now() - started }
         }
 
-        const rawResponse = req.result ?? ''
+        let rawResponse = ''
+        if (req.type === 'streaming') {
+            try {
+                rawResponse = await collectDirectorStream(req.result, arg.abortSignal, (streamed) => {
+                    rawResponse = streamed
+                    arg.onProgress?.(streamed, attempts)
+                })
+            }
+            catch (caught) {
+                const error = arg.abortSignal?.aborted
+                    ? 'Aborted'
+                    : caught instanceof Error
+                        ? `${caught.name}: ${caught.message}${caught.stack ? `\n${caught.stack}` : ''}`
+                        : String(caught)
+                lastPacket = normalizeDirectorPacket(rawResponse, arg.schema)
+                attemptLog.push({
+                    attempt: attempts,
+                    responseType: req.type,
+                    model: lastModel,
+                    rawResponse,
+                    normalizedPacket: lastPacket,
+                    error,
+                    durationMs: Date.now() - attemptStarted,
+                })
+                return { ok: false, packet: lastPacket, error, attempts, attemptLog, model: lastModel, durationMs: Date.now() - started }
+            }
+            if (arg.abortSignal?.aborted) {
+                lastPacket = normalizeDirectorPacket(rawResponse, arg.schema)
+                attemptLog.push({
+                    attempt: attempts,
+                    responseType: req.type,
+                    model: lastModel,
+                    rawResponse,
+                    normalizedPacket: lastPacket,
+                    error: 'Aborted',
+                    durationMs: Date.now() - attemptStarted,
+                })
+                return { ok: false, packet: lastPacket, error: 'Aborted', attempts, attemptLog, model: lastModel, durationMs: Date.now() - started }
+            }
+        }
+        else {
+            rawResponse = req.result ?? ''
+            arg.onProgress?.(rawResponse, attempts)
+        }
         lastPacket = normalizeDirectorPacket(rawResponse, arg.schema)
         lastValidation = validatePacket(lastPacket, arg.schema, arg.styleBase)
         attemptLog.push({

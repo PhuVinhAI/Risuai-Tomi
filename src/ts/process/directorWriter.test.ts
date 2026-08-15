@@ -49,6 +49,17 @@ import {
     validatePacket,
 } from './directorWriter'
 
+function directorStream(...chunks: Record<string, string>[]): ReadableStream<Record<string, string>> {
+    return new ReadableStream({
+        start(controller) {
+            for (const chunk of chunks) {
+                controller.enqueue(chunk)
+            }
+            controller.close()
+        },
+    })
+}
+
 describe('Director-Writer packet boundaries', () => {
     beforeEach(() => {
         mocks.db.jailbreakToggle = true
@@ -89,7 +100,7 @@ The greeting happened.
 [CHARACTER]
 The character is attentive.
 [WRITING STYLE]
-BASE: GREETING
+The writing style baseline is the greeting.
 [DIRECTION]
 Continue the scene.
 [OUTPUT LANGUAGE]
@@ -112,7 +123,7 @@ The greeting happened.
 [CHARACTER]
 The character is attentive.
 [WRITING STYLE]
-BASE: NONE
+There is no writing style baseline.
 [DIRECTION]
 Respond to the current turn.
 [OUTPUT LANGUAGE]
@@ -139,7 +150,7 @@ The greeting says “안녕하세요. 오늘 하루는 잘 보냈니?” and is 
 [CHARACTER]
 The character is attentive.
 [WRITING STYLE]
-BASE: NONE
+There is no writing style baseline.
 [DIRECTION]
 Respond to the current turn.
 [OUTPUT LANGUAGE]
@@ -156,6 +167,38 @@ Vietnamese`
         })
     })
 
+    it('rejects note-like packet bodies so a small Writer receives prose instead of notation', () => {
+        const packet = (facts: string, style: string) => `[SITUATION]
+The scene is in the living room.
+[FACTS]
+${facts}
+[CHARACTER]
+The character is attentive and wants to listen.
+[WRITING STYLE]
+There is no writing style baseline.
+${style}
+[DIRECTION]
+The response should leave room for the user to answer.
+[OUTPUT LANGUAGE]
+Vietnamese`
+
+        expect(validatePacket(packet(
+            'The greeting established that both characters are already together.',
+            'The Writer may choose a natural prose style.'
+        ), defaultPacketSchema()).ok).toBe(true)
+        expect(validatePacket(packet(
+            '- The greeting happened.\n- Both characters are present.',
+            'The Writer may choose a natural prose style.'
+        ), defaultPacketSchema())).toMatchObject({
+            ok: false,
+            missing: ['(packet sections must use prose paragraphs, not lists, field labels, or decorative markup)'],
+        })
+        expect(validatePacket(packet(
+            'Scene: Both characters are in the living room.',
+            'Use :soft words[gentle prose]: throughout.'
+        ), defaultPacketSchema())).toMatchObject({ ok: false })
+    })
+
     it('tells the Director what to correct on its validation retry', async () => {
         const packet = (language: string) => `[SITUATION]
 The scene is established.
@@ -164,7 +207,7 @@ The greeting happened.
 [CHARACTER]
 The character is attentive.
 [WRITING STYLE]
-BASE: NONE
+There is no writing style baseline.
 [DIRECTION]
 Respond to the current turn.
 [OUTPUT LANGUAGE]
@@ -239,6 +282,130 @@ ${language}`
                 error: expect.stringContaining('Proxy connection failed'),
             }],
         })
+    })
+
+    it('streams Director reasoning and packet progress while retaining only the normalized packet', async () => {
+        const packet = `[SITUATION]
+The scene is established.
+[FACTS]
+The greeting happened.
+[CHARACTER]
+The character is attentive.
+[WRITING STYLE]
+There is no writing style baseline.
+[DIRECTION]
+Respond to the current turn.
+[OUTPUT LANGUAGE]
+Vietnamese`
+        const raw = `<Thoughts>Checking continuity.</Thoughts>\n${packet}`
+        mocks.requestChatData.mockResolvedValueOnce({
+            type: 'streaming',
+            result: directorStream(
+                { '0': '<Thoughts>Checking continuity.' },
+                { '0': raw }
+            ),
+            model: 'director-model',
+        })
+        const onProgress = vi.fn()
+
+        const result = await runDirector({
+            formated: [{ role: 'system', content: 'Director prompt' }],
+            director: { aiModel: 'director-model' } as any,
+            schema: defaultPacketSchema(),
+            onProgress,
+        })
+
+        expect(result).toMatchObject({ ok: true, packet, attempts: 1 })
+        expect(result.attemptLog[0]).toMatchObject({
+            responseType: 'streaming',
+            rawResponse: raw,
+            normalizedPacket: packet,
+        })
+        expect(onProgress).toHaveBeenNthCalledWith(1, '', 1)
+        expect(onProgress).toHaveBeenLastCalledWith(raw, 1)
+        expect(mocks.requestChatData.mock.calls[0][0]).toMatchObject({
+            useStreaming: true,
+            forceStreaming: true,
+        })
+    })
+
+    it('retries an invalid streamed Director response and reports the new attempt', async () => {
+        const packet = `[SITUATION]
+The scene is established.
+[FACTS]
+The greeting happened.
+[CHARACTER]
+The character is attentive.
+[WRITING STYLE]
+There is no writing style baseline.
+[DIRECTION]
+Respond to the current turn.
+[OUTPUT LANGUAGE]
+Vietnamese`
+        mocks.requestChatData
+            .mockResolvedValueOnce({
+                type: 'streaming',
+                result: directorStream({ '0': 'I will roleplay instead.' }),
+                model: 'director-model',
+            })
+            .mockResolvedValueOnce({
+                type: 'streaming',
+                result: directorStream({ '0': packet }),
+                model: 'director-model',
+            })
+        const progress: [string, number][] = []
+
+        const result = await runDirector({
+            formated: [{ role: 'system', content: 'Director prompt' }],
+            director: { aiModel: 'director-model' } as any,
+            schema: defaultPacketSchema(),
+            onProgress: (raw, attempt) => progress.push([raw, attempt]),
+        })
+
+        expect(result).toMatchObject({ ok: true, attempts: 2, packet })
+        expect(result.attemptLog.map((attempt) => attempt.responseType)).toEqual(['streaming', 'streaming'])
+        expect(progress).toEqual([
+            ['', 1],
+            ['I will roleplay instead.', 1],
+            ['', 2],
+            [packet, 2],
+        ])
+    })
+
+    it('cancels the Director stream and returns an abort result without waiting for completion', async () => {
+        const controller = new AbortController()
+        const cancel = vi.fn()
+        const stream = new ReadableStream<Record<string, string>>({
+            start(streamController) {
+                streamController.enqueue({ '0': '<Thoughts>Still working' })
+            },
+            cancel,
+        })
+        mocks.requestChatData.mockResolvedValueOnce({
+            type: 'streaming',
+            result: stream,
+            model: 'director-model',
+        })
+
+        const result = await runDirector({
+            formated: [{ role: 'system', content: 'Director prompt' }],
+            director: { aiModel: 'director-model' } as any,
+            schema: defaultPacketSchema(),
+            abortSignal: controller.signal,
+            onProgress: (raw) => {
+                if (raw) {
+                    controller.abort()
+                }
+            },
+        })
+
+        expect(result).toMatchObject({ ok: false, error: 'Aborted', attempts: 1 })
+        expect(result.attemptLog[0]).toMatchObject({
+            responseType: 'streaming',
+            rawResponse: '<Thoughts>Still working',
+            error: 'Aborted',
+        })
+        expect(cancel).toHaveBeenCalledOnce()
     })
 
     it('keeps the selected greeting in Director context and explains its role', () => {
@@ -325,18 +492,18 @@ The greeting happened.
 The character is attentive.
 [WRITING STYLE]
 ${base}
-Long paragraphs; §sound§ between beats.
+The prose uses long paragraphs and places sound effects between narrative beats.
 [DIRECTION]
 Respond to the current turn.
 [OUTPUT LANGUAGE]
 Vietnamese`
 
-        expect(validatePacket(packet('BASE: PREVIOUS WRITER'), schema, 'previous-writer').ok).toBe(true)
-        expect(validatePacket(packet('BASE: GREETING'), schema, 'greeting').ok).toBe(true)
-        expect(validatePacket(packet('BASE: NONE'), schema, 'none').ok).toBe(true)
-        expect(validatePacket(packet('BASE: GREETING'), schema, 'previous-writer')).toMatchObject({
+        expect(validatePacket(packet('The writing style baseline is the previous Writer reply.'), schema, 'previous-writer').ok).toBe(true)
+        expect(validatePacket(packet('The writing style baseline is the greeting.'), schema, 'greeting').ok).toBe(true)
+        expect(validatePacket(packet('There is no writing style baseline.'), schema, 'none').ok).toBe(true)
+        expect(validatePacket(packet('The writing style baseline is the greeting.'), schema, 'previous-writer')).toMatchObject({
             ok: false,
-            missing: ['[WRITING STYLE] (first line must be BASE: PREVIOUS WRITER)'],
+            missing: ['[WRITING STYLE] (first line must be The writing style baseline is the previous Writer reply.)'],
         })
     })
 
@@ -400,6 +567,7 @@ Vietnamese`
         expect(instruction).toContain('["Miyabi_home_smile"]')
         expect(instruction).not.toContain('Miyabi excluded')
         expect(instruction).toContain('Never invent, translate, normalize, shorten, or paraphrase a key')
+        expect(instruction).toContain('<img src="EXACT_KEY_FROM_LIST">')
 
         const formated = buildWriterFormated({
             writer: writer as any,
@@ -429,8 +597,9 @@ Vietnamese`
         }
 
         const instruction = buildWriterAssetInstruction(writer as any, currentChar as any)
-        expect(instruction).toContain('Follow the Writer preset\'s custom image instruction')
+        expect(instruction).toContain('Follow the Writer preset\'s custom image instruction for tag syntax/format')
         expect(instruction).toContain('["Exact key"]')
         expect(instruction).not.toContain('Use at least one image')
+        expect(instruction).not.toContain('<img src="EXACT_KEY_FROM_LIST">')
     })
 })

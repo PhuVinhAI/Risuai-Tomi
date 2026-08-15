@@ -1650,6 +1650,9 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                     styleBase: dwStyleBase,
                     currentChar,
                     abortSignal,
+                    onProgress: (rawResponse) => {
+                        directorStatus.set(rawResponse || language.directorWorking)
+                    },
                 })
             }
             finally{
