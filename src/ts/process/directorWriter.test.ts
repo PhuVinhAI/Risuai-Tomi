@@ -91,7 +91,7 @@ The greeting happened.`)
         expect(packet).not.toContain('preamble')
     })
 
-    it('salvages a complete packet when a provider wraps the final answer as reasoning', () => {
+    it('never treats a complete packet inside reasoning as the final Director response', () => {
         const raw = `<analysis>
 [SITUATION]
 The scene is established.
@@ -109,10 +109,23 @@ Vietnamese
 
         const packet = normalizeDirectorPacket(raw, defaultPacketSchema())
 
-        expect(packet).toContain('[SITUATION]')
-        expect(packet).toContain('[OUTPUT LANGUAGE]\nVietnamese')
-        expect(packet).not.toContain('<analysis>')
-        expect(validatePacket(packet, defaultPacketSchema(), 'greeting').ok).toBe(true)
+        expect(packet).toBe('')
+        expect(validatePacket(packet, defaultPacketSchema(), 'greeting')).toMatchObject({
+            ok: false,
+            found: [],
+        })
+    })
+
+    it('discards an unclosed reasoning draft when generation runs out before final output', () => {
+        const raw = `<Thoughts>
+[SITUATION]
+Time: 7:30 PM.
+[FACTS]
+- The greeting happened.
+[CHARACTER]
+Wait, I should refine this before the final packet.`
+
+        expect(normalizeDirectorPacket(raw, defaultPacketSchema())).toBe('')
     })
 
     it('rejects a localized OUTPUT LANGUAGE value so the Director retries', () => {
@@ -167,7 +180,7 @@ Vietnamese`
         })
     })
 
-    it('allows essential lists, tags, and literal style markup inside a valid packet', () => {
+    it('does not make packet validation fail merely because symbols or tags remain', () => {
         const packet = `[SITUATION]
 The scene is in the living room.
 [FACTS]
@@ -424,6 +437,9 @@ Vietnamese`
         expect(formated[0]?.content).toContain('selected greeting/first message')
         expect(formated[0]?.content).toContain('Writing-style baseline: GREETING')
         expect(formated[0]?.content).toContain('Write every packet description and instruction in English')
+        expect(formated[0]?.content).toContain('This section contains prose style only')
+        expect(formated[0]?.content).toContain('Never put them in the packet')
+        expect(formated[0]?.content).not.toContain('Preserve literal markup or code tokens')
         expect(getDirectorInstruction(director as any)).toContain('OUTPUT LANGUAGE')
     })
 

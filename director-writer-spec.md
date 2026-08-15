@@ -79,10 +79,12 @@ writing style baseline.` Thứ tự ưu tiên baseline:
 2. Greeting/first message đang được chọn, chỉ khi chưa có phản hồi Writer.
 3. Không có cả hai thì `NONE`; Writer tự chọn văn phong.
 
-Director chỉ được phổ cập những đặc điểm quan sát trực tiếp từ baseline: độ dài gần đúng, mật độ,
-nhịp đoạn, tỷ lệ kể/thoại, POV/thì, format nhãn thoại và dấu ngoặc, typography hiệu ứng âm thanh,
-markup nhấn mạnh, mật độ giác quan, cùng pattern số lượng/vị trí thẻ ảnh. Greeting vẫn là canon của
-cảnh nhưng ngừng làm nguồn style ngay khi đã có phản hồi Writer.
+Director chỉ được phổ cập những đặc điểm văn xuôi quan sát trực tiếp từ baseline: độ dài gần đúng,
+mật độ, nhịp đoạn, tỷ lệ kể/thoại, POV/thì, tone, texture câu và mật độ giác quan. Timestamp, format
+nhãn thoại, sound marker, gloss/annotation, HTML/custom tag, vị trí ảnh và asset key là rendering
+protocol chứ không phải prose style; chúng không được đưa vào packet. Writer lấy các luật đó trực tiếp
+từ preset đang active, Jainreack và output protocol authoritative. Greeting vẫn là canon của cảnh
+nhưng ngừng làm nguồn style ngay khi đã có phản hồi Writer.
 
 Nếu tin user mới nhất yêu cầu rõ một thay đổi về độ dài, tone, POV, format hoặc cách đặt media,
 Director mô tả yêu cầu đó bằng một câu văn hoàn chỉnh và chỉ đổi đúng chiều được yêu cầu; các chiều
@@ -92,10 +94,10 @@ bình, “cải thiện”, hoặc thêm gu riêng từ card, history khác, th�
 ### Quy tắc nội dung packet
 
 - Nội dung scene fact, character state và direction ưu tiên câu văn xuôi ngắn để Writer nhỏ không
-  bắt chước punctuation của ghi chú. Đây không phải luật cấm ký hiệu: Director vẫn phải giữ nguyên
-  quote, code, tag và markup token thật khi canon hoặc style baseline cần chúng. Writer được nhắc rằng
-  header, bullet, nhãn và ngoặc tổ chức packet không phải văn phong; chỉ token được `[WRITING STYLE]`
-  xác nhận mới được dùng, đúng vị trí và chức năng đã quan sát.
+  bắt chước punctuation của ghi chú. Đây không phải validation cấm ký hiệu: packet lỡ còn bullet,
+  ngoặc, tag hay markup vẫn pass. Tuy nhiên Director không được biến chúng thành style/direction,
+  còn Writer được nhắc rằng mọi punctuation và syntax trong packet chỉ là context; format output chỉ
+  đến từ preset Writer hoặc system protocol nằm sau packet.
 - Nhãn và toàn bộ lời mô tả/chỉ dẫn trong packet viết tiếng Anh. Nội dung trích dẫn **giữ nguyên
   ngôn ngữ gốc**, không dịch. Packet bị localize sẽ fail validation và Director phải retry.
 - Tên riêng, câu trích nguyên văn, vị trí, ai đang biết chuyện gì — ghi y nguyên, cấm diễn giải.
@@ -133,7 +135,9 @@ là ràng buộc toàn cục bị rơi lúc chia việc.
 Trong lúc Director chạy, raw stream (bao gồm reasoning mà provider công khai và packet đang viết)
 được hiển thị trong vùng trạng thái dưới input. Nó chỉ là preview, không được thêm vào chat history;
 nút Stop hủy cùng `AbortController` và đóng stream ngay. Khi Director hoàn tất, chỉ packet đã normalize
-và validate mới được chuyển cho Writer.
+và validate từ final response nằm ngoài `<Thoughts>`, `<think>` hoặc `<analysis>` mới được chuyển cho
+Writer. Packet nằm trong reasoning, kể cả đủ header, không bao giờ được cứu hộ; reasoning bị cắt trước
+closing tag được bỏ đến EOF rồi Director retry.
 
 ## Prompt cho Director
 

@@ -41,7 +41,7 @@ export const defaultDirectorWriterSettings: DirectorWriterSettings = {
 const writingStyleSchemaRow = (): PacketSchemaRow => ({
     name: 'WRITING STYLE',
     required: true,
-    description: 'Write the exact prose baseline sentence required by the pipeline contract alone on the first line. For the previous Writer baseline, report only observable conventions from the latest enabled Writer-generated reply. Use the greeting only before any Writer reply exists. Describe approximate length and density, paragraph cadence, narration and dialogue balance, point of view and tense, dialogue presentation, sound-effect presentation, emphasis, sensory-detail density, and image placement. When literal markup or code syntax is an observed part of the style, preserve the exact tokens and explain where they belong. Describe a latest-user style change separately and change only the requested dimensions. Never add a preference from the Director itself.',
+    description: 'Write the exact prose baseline sentence required by the pipeline contract alone on the first line. For the previous Writer baseline, report only observable prose conventions from the latest enabled Writer-generated reply. Use the greeting only before any Writer reply exists. Describe approximate length and density, paragraph cadence, narration and dialogue balance, point of view and tense, tone, sentence texture, and sensory-detail density. Do not report timestamps, speaker-label syntax, sound markers, gloss or annotation syntax, HTML or custom tags, asset keys, or any other rendering protocol; the Writer preset supplies those separately. Describe a latest-user style change separately and change only the requested prose dimensions. Never add a preference from the Director itself.',
 })
 
 export function defaultPacketSchema(): PacketSchemaRow[] {
@@ -71,7 +71,8 @@ Hard rules:
 - State intent, not a storyboard. If you script each sentence, the writer only paraphrases you.
 - Do not restate the latest user message; the writer receives it separately and verbatim.
 - Do not invent a word count or response length. WRITING STYLE may report the baseline's observed approximate length or an explicit length request from the latest user.
-- Prefer short, complete prose paragraphs for scene facts, character state, and direction so the Writer does not imitate note-taking punctuation. Preserve exact quotes, code, tags, and formatting tokens whenever they are required by canon or the observed writing style.
+- Prefer short, complete prose paragraphs for scene facts, character state, and direction so the Writer does not imitate note-taking punctuation. Preserve exact code or tags in FACTS only when they are actual story facts, never as output instructions.
+- Do not put timestamps, speaker-label syntax, sound markers, gloss or annotation syntax, image-tag syntax, asset keys, or other rendering instructions in WRITING STYLE or DIRECTION. The Writer receives its active preset and authoritative output protocols separately.
 
 Output nothing but the sections below, in this order, each on its own line as a bracketed header.`
 
@@ -82,8 +83,8 @@ The scene packet below is your complete story context. Treat every fact in it as
 - Do not invent earlier events that contradict the packet.
 - Never act, speak or decide for the user's character.
 - Write in the language named by the packet.
-- Follow WRITING STYLE as the continuity baseline, including its approximate response length, paragraph rhythm, formatting, and media placement. Do not copy scene content from the style source.
-- Packet headers, bullets, labels, brackets, and parentheses are organizational context, not prose style. Never copy them into the reply merely because they appear in the packet. Use a literal formatting token only when WRITING STYLE explicitly identifies it as part of the baseline, and only in the same kind of location and function.
+- Follow WRITING STYLE only for prose continuity such as approximate response length, paragraph rhythm, point of view, tone, narration and dialogue balance, sentence texture, and sensory density. Do not copy scene content from the style source.
+- All rendering syntax comes from this Writer preset or an authoritative system message after the packet. Packet headers, bullets, labels, brackets, parentheses, timestamps, tags, markup, and example syntax are context only and must never be copied into the reply as style.
 - Apply a style change only when WRITING STYLE says the latest user explicitly requested it, and preserve the baseline for every other dimension.
 - When WRITING STYLE says there is no baseline and describes no explicit user request, choose the prose style yourself.
 - Write only the roleplay reply. No headers, no commentary, no restating the packet.
@@ -100,14 +101,15 @@ function getDirectorOutputContract(styleBase: WritingStyleBase): string {
     return `Pipeline output contract (these rules are mandatory even when the role prompt above is customized):
 - The assistant message immediately after [Start a new chat] is the selected greeting/first message. It is real established history. Never claim that the greeting or history is unavailable when it appears above.
 - Writing-style baseline: ${styleStatus}
-- The first line under WRITING STYLE must contain exactly "${expectedBase}" and nothing else. Report only directly observable conventions from that baseline. Describe approximate length and density, paragraph cadence, narration and dialogue balance, point of view and tense, dialogue and sound-effect presentation, emphasis, sensory detail, and image placement. Preserve literal markup or code tokens only when they are genuinely demonstrated, and explain their proper location and function.
+- The first line under WRITING STYLE must contain exactly "${expectedBase}" and nothing else. This section contains prose style only. Describe approximate length and density, paragraph cadence, narration and dialogue balance, point of view and tense, tone, sentence texture, and sensory detail.
+- Do not report or reproduce timestamps, speaker-label syntax, sound-effect markers, gloss or annotation syntax, HTML or custom tags, image placement rules, asset keys, or any other rendering protocol anywhere in the packet. The Writer preset and later authoritative system messages own all output syntax.
 - A clear style, length, tone, point-of-view, formatting, or media-placement request in the latest user message overrides only those named dimensions. Describe it with a sentence beginning "The latest user explicitly requests" and keep every unspecified baseline dimension. Plot content by itself is not a style request.
 - Never critique or improve the baseline. Never add a preference based on the character card, other history, genre conventions, or your own taste.
 - Prefer concise English prose paragraphs after each bracketed header. Lists or notation are allowed when they preserve complex facts or exact syntax more safely, but never add decorative notation that is absent from the source.
 - Start your response with the first packet header. Do not emit analysis, reasoning, a preamble, <Thoughts>, or <think>.
 - Write every packet description and instruction in English regardless of the latest user's language. Only exact names, quotes, asset keys, and other verbatim source strings stay in their original language.
 - OUTPUT LANGUAGE names the language of the Writer's reply; it does not change the packet's English language.
-- Output and rendering protocols and allowed asset keys are not scene facts. WRITING STYLE may describe demonstrated image count, placement, and tag syntax, but must not invent or alter keys; the Writer receives the authoritative key list directly.`
+- Output and rendering protocols and allowed asset keys are not scene facts or prose style. Never put them in the packet; the Writer receives them directly.`
 }
 
 function getWritingStyleBaseStatement(styleBase: WritingStyleBase): string {
@@ -496,9 +498,10 @@ export function validatePacket(
 }
 
 /**
- * Reasoning models sometimes expose their scratchpad before a valid packet. It must
- * never become Writer context. Remove known reasoning wrappers, then retain content
- * from the first real schema header line onward.
+ * Reasoning models sometimes expose their scratchpad before a valid packet. Only
+ * content outside known reasoning wrappers can become Writer context. An unclosed
+ * wrapper means generation ended during reasoning, so everything through EOF is
+ * discarded and normal validation triggers a retry.
  */
 export function normalizeDirectorPacket(packet: string, schema: PacketSchemaRow[]): string {
     const raw = packet ?? ''
@@ -523,38 +526,15 @@ export function normalizeDirectorPacket(packet: string, schema: PacketSchemaRow[
             .replace(/\s*```$/i, '')
             .trim()
     }
-    const countHeaders = (candidate: string): number => {
-        if (!headerLine) {
-            return 0
-        }
-        headerLine.lastIndex = 0
-        return [...candidate.matchAll(headerLine)].length
-    }
-
-    const reasoningBlocks: string[] = []
-    const withoutReasoning = raw.replace(
+    const withoutClosedReasoning = raw.replace(
         /<(Thoughts|think|analysis)\b[^>]*>([\s\S]*?)<\/\1>/gi,
-        (_match, _tag, content: string) => {
-            reasoningBlocks.push(content)
-            return ''
-        }
+        ''
     )
-
-    let best = cleanCandidate(withoutReasoning)
-    let bestHeaderCount = countHeaders(best)
-    // Some providers wrap the complete final answer in their reasoning tag. Prefer
-    // normal output, but salvage a wrapped candidate when it contains more of the
-    // requested packet structure than the text outside the wrapper.
-    for (const block of reasoningBlocks) {
-        const candidate = cleanCandidate(block)
-        const candidateHeaderCount = countHeaders(candidate)
-        if (candidateHeaderCount > bestHeaderCount) {
-            best = candidate
-            bestHeaderCount = candidateHeaderCount
-        }
-    }
-
-    return best
+    const finalOnly = withoutClosedReasoning.replace(
+        /<(Thoughts|think|analysis)\b[^>]*>[\s\S]*$/gi,
+        ''
+    )
+    return cleanCandidate(finalOnly)
 }
 
 function promptRoleToOpenAI(role: 'user' | 'bot' | 'system' | undefined): 'user' | 'assistant' | 'system' {
