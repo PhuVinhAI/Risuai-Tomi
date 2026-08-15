@@ -129,6 +129,12 @@ là ràng buộc toàn cục bị rơi lúc chia việc.
 Nói rõ: không RP, không viết thoại trừ khi cần trích nguyên văn, không nhại nhân vật, không viết
 phản hồi cuối. Chỉ phân tích trạng thái và xuất packet.
 
+Prompt đã dựng từ preset đang hoạt động vẫn được truyền đủ, nhưng được serialize vào
+`DIRECTOR_SOURCE_CONTEXT` như dữ liệu quote thay vì giữ quyền `system/user/assistant` thật. Contract
+Director đứng ở system đầu tiên và một final command đứng sau source. Việc cách ly này ngăn main
+prompt, jailbreak, image instruction hay lời RP trong context biến Director thành Writer, đúng lỗi
+đã quan sát khi DeepSeek bỏ toàn bộ schema và trả thẳng roleplay ở cả hai attempt.
+
 Nếu không nói rõ, Director sẽ viết một đoạn RP rồi Writer chỉ paraphrase lại — mất sạch lý do
 dùng hai model.
 
@@ -292,6 +298,8 @@ Mỗi lượt một dòng JSONL, append. Nội dung mỗi dòng:
 - Hash khớp hay không, và lý do gọi Director
 - Baseline văn phong: previous-writer / greeting / none
 - Director: preset, model, token vào ra, thời gian, **packet nguyên văn**
+- Nếu Director fail hoặc phải retry: raw response, normalized packet, validation/error và thời gian
+  của từng attempt, để không mất câu trả lời lỗi của model/provider
 - Director: **chỉ hash và số token của prompt đầu vào**, không lưu nguyên văn
 - Writer: preset, model, token, độ dài output
 - Validate: pass/fail, thiếu header nào, retry mấy lần
@@ -422,6 +430,3 @@ Nemotron), model nhỏ thì bị đẩy sang mode chia nhỏ.
 - Mở lại chat cũ — Director không được chạy
 - Director trả về prose thay vì packet — phải fail và retry
 - Writer trả lời sai ngôn ngữ
-
-
-

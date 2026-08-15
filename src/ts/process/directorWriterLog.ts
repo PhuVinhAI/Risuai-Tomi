@@ -1,5 +1,9 @@
 import { downloadFile, forageStorage } from '../globalApi.svelte'
-import { getDirectorWriterSettings, type WritingStyleBase } from './directorWriter'
+import {
+    getDirectorWriterSettings,
+    type DirectorAttemptTrace,
+    type WritingStyleBase,
+} from './directorWriter'
 
 const LOG_KEY = 'directorWriter/log.jsonl'
 const MAX_ENTRIES = 2000
@@ -24,6 +28,8 @@ export interface DirectorWriterLogEntry {
         packetChars: number
         durationMs: number
         packet: string
+        /** Raw and normalized model output for retries or failed Director runs. */
+        attempts?: DirectorAttemptTrace[]
     }
     writer?: {
         preset: string

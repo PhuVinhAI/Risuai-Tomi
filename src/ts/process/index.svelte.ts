@@ -1671,6 +1671,16 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                     styleBase: dwStyleBase,
                     directorPromptHash: dwPromptHash,
                     schemaHash: dwSchemaHash,
+                    director: {
+                        preset: dw.director.name ?? '',
+                        model: dwRun.model ?? dw.director.aiModel ?? '',
+                        promptTokens: inputTokens,
+                        promptHash: dwDirectorPromptHash,
+                        packetChars: dwRun.packet.length,
+                        durationMs: dwRun.durationMs,
+                        packet: dwRun.packet,
+                        attempts: dwRun.attemptLog,
+                    },
                     validation: dwRun.validation ? { ...dwRun.validation, attempts: dwRun.attempts } : undefined,
                     error: dwRun.error,
                 })
@@ -1725,6 +1735,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                 packetChars: dwPacket.length,
                 durationMs: dwRun.durationMs,
                 packet: dwPacket,
+                attempts: dwRun.attemptLog.length > 1 ? dwRun.attemptLog : undefined,
             } : undefined,
             writer: {
                 preset: dw.writer.name ?? '',
