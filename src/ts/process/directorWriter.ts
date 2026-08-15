@@ -41,7 +41,7 @@ export const defaultDirectorWriterSettings: DirectorWriterSettings = {
 const writingStyleSchemaRow = (): PacketSchemaRow => ({
     name: 'WRITING STYLE',
     required: true,
-    description: 'Write the exact prose baseline sentence required by the pipeline contract alone on the first line. For the previous Writer baseline, report only observable conventions from the latest enabled Writer-generated reply. Use the greeting only before any Writer reply exists. Describe approximate length and density, paragraph cadence, narration and dialogue balance, point of view and tense, dialogue presentation, sound-effect presentation, emphasis, sensory-detail density, and image placement in complete prose sentences. Describe a latest-user style change in a separate complete sentence and change only the requested dimensions. Never reproduce decorative markup examples or add a preference from the Director itself.',
+    description: 'Write the exact prose baseline sentence required by the pipeline contract alone on the first line. For the previous Writer baseline, report only observable conventions from the latest enabled Writer-generated reply. Use the greeting only before any Writer reply exists. Describe approximate length and density, paragraph cadence, narration and dialogue balance, point of view and tense, dialogue presentation, sound-effect presentation, emphasis, sensory-detail density, and image placement. When literal markup or code syntax is an observed part of the style, preserve the exact tokens and explain where they belong. Describe a latest-user style change separately and change only the requested dimensions. Never add a preference from the Director itself.',
 })
 
 export function defaultPacketSchema(): PacketSchemaRow[] {
@@ -71,7 +71,7 @@ Hard rules:
 - State intent, not a storyboard. If you script each sentence, the writer only paraphrases you.
 - Do not restate the latest user message; the writer receives it separately and verbatim.
 - Do not invent a word count or response length. WRITING STYLE may report the baseline's observed approximate length or an explicit length request from the latest user.
-- Except for the single OUTPUT LANGUAGE value, write every packet body as short, complete prose paragraphs. Do not use bullet lists, field labels, tables, slash shorthand, parenthetical asides, or decorative markup examples. The bracketed section headers are the only structural notation allowed.
+- Prefer short, complete prose paragraphs for scene facts, character state, and direction so the Writer does not imitate note-taking punctuation. Preserve exact quotes, code, tags, and formatting tokens whenever they are required by canon or the observed writing style.
 
 Output nothing but the sections below, in this order, each on its own line as a bracketed header.`
 
@@ -83,6 +83,7 @@ The scene packet below is your complete story context. Treat every fact in it as
 - Never act, speak or decide for the user's character.
 - Write in the language named by the packet.
 - Follow WRITING STYLE as the continuity baseline, including its approximate response length, paragraph rhythm, formatting, and media placement. Do not copy scene content from the style source.
+- Packet headers, bullets, labels, brackets, and parentheses are organizational context, not prose style. Never copy them into the reply merely because they appear in the packet. Use a literal formatting token only when WRITING STYLE explicitly identifies it as part of the baseline, and only in the same kind of location and function.
 - Apply a style change only when WRITING STYLE says the latest user explicitly requested it, and preserve the baseline for every other dimension.
 - When WRITING STYLE says there is no baseline and describes no explicit user request, choose the prose style yourself.
 - Write only the roleplay reply. No headers, no commentary, no restating the packet.
@@ -99,14 +100,14 @@ function getDirectorOutputContract(styleBase: WritingStyleBase): string {
     return `Pipeline output contract (these rules are mandatory even when the role prompt above is customized):
 - The assistant message immediately after [Start a new chat] is the selected greeting/first message. It is real established history. Never claim that the greeting or history is unavailable when it appears above.
 - Writing-style baseline: ${styleStatus}
-- The first line under WRITING STYLE must contain exactly "${expectedBase}" and nothing else. Report only directly observable conventions from that baseline in complete prose sentences. Describe approximate length and density, paragraph cadence, narration and dialogue balance, point of view and tense, dialogue and sound-effect presentation, emphasis, sensory detail, and image placement without reproducing literal decorative markup.
+- The first line under WRITING STYLE must contain exactly "${expectedBase}" and nothing else. Report only directly observable conventions from that baseline. Describe approximate length and density, paragraph cadence, narration and dialogue balance, point of view and tense, dialogue and sound-effect presentation, emphasis, sensory detail, and image placement. Preserve literal markup or code tokens only when they are genuinely demonstrated, and explain their proper location and function.
 - A clear style, length, tone, point-of-view, formatting, or media-placement request in the latest user message overrides only those named dimensions. Describe it with a sentence beginning "The latest user explicitly requests" and keep every unspecified baseline dimension. Plot content by itself is not a style request.
 - Never critique or improve the baseline. Never add a preference based on the character card, other history, genre conventions, or your own taste.
-- After each bracketed header, write only concise English prose paragraphs made of complete sentences. Never use bullets, numbered lists, field labels followed by colons, tables, nested brackets, slash shorthand, parenthetical asides, arrows, or copied markup examples.
+- Prefer concise English prose paragraphs after each bracketed header. Lists or notation are allowed when they preserve complex facts or exact syntax more safely, but never add decorative notation that is absent from the source.
 - Start your response with the first packet header. Do not emit analysis, reasoning, a preamble, <Thoughts>, or <think>.
 - Write every packet description and instruction in English regardless of the latest user's language. Only exact names, quotes, asset keys, and other verbatim source strings stay in their original language.
 - OUTPUT LANGUAGE names the language of the Writer's reply; it does not change the packet's English language.
-- Output and rendering protocols and allowed asset keys are not scene facts. WRITING STYLE may describe demonstrated image count and placement in prose, but must not repeat syntax or keys; the Writer receives that protocol directly.`
+- Output and rendering protocols and allowed asset keys are not scene facts. WRITING STYLE may describe demonstrated image count, placement, and tag syntax, but must not invent or alter keys; the Writer receives the authoritative key list directly.`
 }
 
 function getWritingStyleBaseStatement(styleBase: WritingStyleBase): string {
@@ -421,16 +422,6 @@ function hasLocalizedPacketProse(text: string, rows: PacketSchemaRow[]): boolean
     return nonLatinLetters >= 32
 }
 
-function hasNonProsePacketStructure(text: string, rows: PacketSchemaRow[]): boolean {
-    const body = rows
-        .map((row) => getPacketSectionContent(text, row.name))
-        .join('\n')
-    const hasListItem = /^[\t ]*(?:[-*+]\s+|\d+[.)]\s+)/m.test(body)
-    const hasFieldLabel = /^[\t ]*[A-Za-z][A-Za-z -]{1,32}:\s+\S/m.test(body)
-    const hasDecorativeInlineMarkup = /:[^\n:[\]]{1,120}\[[^\n\]]{1,120}\](?::)?/u.test(body)
-    return hasListItem || hasFieldLabel || hasDecorativeInlineMarkup
-}
-
 /** Header presence plus the few packet contracts that must be machine-checkable. */
 export function validatePacket(
     packet: string,
@@ -462,14 +453,6 @@ export function validatePacket(
             ok: false,
             found,
             missing: ['(packet descriptions and instructions must be written in English)'],
-        }
-    }
-
-    if (hasNonProsePacketStructure(text, rows)) {
-        return {
-            ok: false,
-            found,
-            missing: ['(packet sections must use prose paragraphs, not lists, field labels, or decorative markup)'],
         }
     }
 
@@ -914,7 +897,7 @@ export async function runDirector(arg: {
         const retryCorrection: OpenAIChat[] = lastValidation
             ? [{
                 role: 'system',
-                content: `Your previous output failed packet validation: ${lastValidation.missing.join(', ')}. Return the complete packet again. Start at the first header, write every section as complete English prose paragraphs without bullets, field labels, parenthetical notes, or decorative markup examples, write the OUTPUT LANGUAGE value in English, and emit no analysis or preamble.`,
+                content: `Your previous output failed packet validation: ${lastValidation.missing.join(', ')}. Return the complete packet again. Start at the first header, keep packet instructions in English, preserve any essential literal syntax from the source, write the OUTPUT LANGUAGE value in English, and emit no analysis or preamble.`,
             }]
             : []
         let req: Awaited<ReturnType<typeof requestChatData>>

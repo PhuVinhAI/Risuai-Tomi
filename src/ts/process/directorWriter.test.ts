@@ -167,36 +167,23 @@ Vietnamese`
         })
     })
 
-    it('rejects note-like packet bodies so a small Writer receives prose instead of notation', () => {
-        const packet = (facts: string, style: string) => `[SITUATION]
+    it('allows essential lists, tags, and literal style markup inside a valid packet', () => {
+        const packet = `[SITUATION]
 The scene is in the living room.
 [FACTS]
-${facts}
+- The greeting happened.
+- The demonstrated image tag is <pimg src="Akatsuki Miyabi.office.smile">.
 [CHARACTER]
-The character is attentive and wants to listen.
+The character is attentive.
 [WRITING STYLE]
 There is no writing style baseline.
-${style}
+When requested by the user, the literal emphasis form is :visible phrase[deeper meaning]: and belongs only around intentional emphasis.
 [DIRECTION]
-The response should leave room for the user to answer.
+Respond to the current turn.
 [OUTPUT LANGUAGE]
 Vietnamese`
 
-        expect(validatePacket(packet(
-            'The greeting established that both characters are already together.',
-            'The Writer may choose a natural prose style.'
-        ), defaultPacketSchema()).ok).toBe(true)
-        expect(validatePacket(packet(
-            '- The greeting happened.\n- Both characters are present.',
-            'The Writer may choose a natural prose style.'
-        ), defaultPacketSchema())).toMatchObject({
-            ok: false,
-            missing: ['(packet sections must use prose paragraphs, not lists, field labels, or decorative markup)'],
-        })
-        expect(validatePacket(packet(
-            'Scene: Both characters are in the living room.',
-            'Use :soft words[gentle prose]: throughout.'
-        ), defaultPacketSchema())).toMatchObject({ ok: false })
+        expect(validatePacket(packet, defaultPacketSchema(), 'none').ok).toBe(true)
     })
 
     it('tells the Director what to correct on its validation retry', async () => {

@@ -91,10 +91,11 @@ bình, “cải thiện”, hoặc thêm gu riêng từ card, history khác, th�
 
 ### Quy tắc nội dung packet
 
-- Chỉ header dùng ký hiệu ngoặc vuông để validator phân section. Nội dung dưới mỗi header phải là
-  đoạn văn tiếng Anh với câu hoàn chỉnh; cấm bullet, danh sách đánh số, nhãn kèm dấu hai chấm, bảng,
-  slash shorthand, ngoặc giải thích lồng nhau, mũi tên và ví dụ markup trang trí. Style markup chỉ
-  được mô tả tác dụng bằng văn xuôi, không copy ký hiệu sang packet để Writer nhỏ bắt chước sai.
+- Nội dung scene fact, character state và direction ưu tiên câu văn xuôi ngắn để Writer nhỏ không
+  bắt chước punctuation của ghi chú. Đây không phải luật cấm ký hiệu: Director vẫn phải giữ nguyên
+  quote, code, tag và markup token thật khi canon hoặc style baseline cần chúng. Writer được nhắc rằng
+  header, bullet, nhãn và ngoặc tổ chức packet không phải văn phong; chỉ token được `[WRITING STYLE]`
+  xác nhận mới được dùng, đúng vị trí và chức năng đã quan sát.
 - Nhãn và toàn bộ lời mô tả/chỉ dẫn trong packet viết tiếng Anh. Nội dung trích dẫn **giữ nguyên
   ngôn ngữ gốc**, không dịch. Packet bị localize sẽ fail validation và Director phải retry.
 - Tên riêng, câu trích nguyên văn, vị trí, ai đang biết chuyện gì — ghi y nguyên, cấm diễn giải.
