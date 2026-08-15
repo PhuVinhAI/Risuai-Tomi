@@ -53,7 +53,9 @@ Mỗi dòng ba thứ:
 
 Danh sách này vừa là hướng dẫn cho Director vừa là luật validate — một nguồn, không lệch nhau.
 `[WRITING STYLE]` là contract bắt buộc của pipeline: schema cũ hoặc custom schema thiếu dòng này
-được tự chèn trước `[DIRECTION]`/`[OUTPUT LANGUAGE]`, hoặc ở cuối nếu không có hai dòng đó.
+được tự chèn trước `[DIRECTION]`/`[OUTPUT LANGUAGE]`, hoặc ở cuối nếu không có hai dòng đó. Row
+`[WRITING STYLE]` đã tồn tại từ version cũ cũng luôn được thay bằng description canonical hiện tại;
+đây là row do pipeline sở hữu, tránh preset cũ giữ luật `BASE: ...` mâu thuẫn với validator mới.
 
 ### 9 header mặc định
 

@@ -298,8 +298,23 @@ export function getPacketSchema(preset: botPreset): PacketSchemaRow[] {
 /** Ensure every Director schema can carry the mandatory style-continuity contract. */
 export function ensureWritingStyleSchema(schema: PacketSchemaRow[]): PacketSchemaRow[] {
     const names = schema.map((row) => row?.name?.trim().toUpperCase())
-    if (names.includes('WRITING STYLE')) {
-        return schema
+    const writingStyleIndex = names.indexOf('WRITING STYLE')
+    if (writingStyleIndex >= 0) {
+        const canonical = writingStyleSchemaRow()
+        const current = schema[writingStyleIndex]
+        if (
+            current.name === canonical.name
+            && current.description === canonical.description
+            && current.required === canonical.required
+        ) {
+            return schema
+        }
+        const rows = [...schema]
+        // WRITING STYLE is a pipeline-owned contract. Presets created by older
+        // versions may retain instructions that directly contradict the current
+        // validator, so normalize this one row while preserving every custom row.
+        rows[writingStyleIndex] = canonical
+        return rows
     }
 
     const greetingStyleIndex = names.indexOf('GREETING STYLE')

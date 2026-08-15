@@ -484,6 +484,26 @@ Vietnamese`
         ])
     })
 
+    it('replaces a stale writing-style row that contradicts the current packet contract', () => {
+        const staleDescription = 'First write BASE: PREVIOUS WRITER, BASE: GREETING, or BASE: NONE.'
+        const staleSchema = defaultPacketSchema().map((row) => row.name === 'WRITING STYLE'
+            ? { ...row, description: staleDescription, required: false }
+            : row
+        )
+
+        const migrated = ensureWritingStyleSchema(staleSchema)
+        const style = migrated.find((row) => row.name === 'WRITING STYLE')
+
+        expect(migrated).not.toBe(staleSchema)
+        expect(style).toMatchObject({ required: true })
+        expect(style?.description).not.toContain('BASE: GREETING')
+        expect(style?.description).toContain('observable prose conventions')
+        expect(migrated.filter((row) => row.name === 'WRITING STYLE')).toHaveLength(1)
+        expect(migrated.find((row) => row.name === 'SITUATION')).toBe(
+            staleSchema.find((row) => row.name === 'SITUATION')
+        )
+    })
+
     it('validates the declared writing-style baseline', () => {
         const preset = { dwSchema: defaultPacketSchema() } as any
         const schema = getPacketSchema(preset)
