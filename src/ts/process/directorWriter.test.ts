@@ -45,20 +45,10 @@ import {
     getWritingStyleContext,
     hashHistoryPrefix,
     normalizeDirectorPacket,
+    pickLatestUserMessage,
     runDirector,
     validatePacket,
 } from './directorWriter'
-
-function directorStream(...chunks: Record<string, string>[]): ReadableStream<Record<string, string>> {
-    return new ReadableStream({
-        start(controller) {
-            for (const chunk of chunks) {
-                controller.enqueue(chunk)
-            }
-            controller.close()
-        },
-    })
-}
 
 describe('Director-Writer packet boundaries', () => {
     beforeEach(() => {
@@ -199,6 +189,38 @@ Vietnamese`
         expect(validatePacket(packet, defaultPacketSchema(), 'none').ok).toBe(true)
     })
 
+    it('keeps all rendered non-history context for the Writer and removes chat history', () => {
+        const formated = buildWriterFormated({
+            base: [
+                { role: 'system', content: 'Character description and world lore' },
+                { role: 'system', content: 'Use timestamp and <pimg src="Exact key"> protocols' },
+                { role: 'assistant', content: 'Old greeting', removable: true },
+                { role: 'user', content: 'Old user turn', removable: true },
+                { role: 'system', content: 'Author note after history' },
+            ],
+            writer: { dwRole: 'writer', dwPrompt: '' } as any,
+            packet: '[SITUATION]\nCurrent continuity',
+            userMessage: { role: 'user', content: 'Latest user turn' },
+        })
+
+        expect(formated.some((message) => message.content === 'Character description and world lore')).toBe(true)
+        expect(formated.some((message) => message.content.includes('timestamp and <pimg'))).toBe(true)
+        expect(formated.some((message) => message.content === 'Author note after history')).toBe(true)
+        expect(formated.some((message) => message.content === 'Old greeting')).toBe(false)
+        expect(formated.some((message) => message.content === 'Old user turn')).toBe(false)
+        expect(formated.at(-2)?.content).toBe('[SITUATION]\nCurrent continuity')
+        expect(formated.at(-1)?.content).toBe('Latest user turn')
+    })
+
+    it('takes the latest real user turn instead of a user-role configuration prompt', () => {
+        const picked = pickLatestUserMessage(
+            [{ role: 'user', content: 'User-role post-everything instruction' }],
+            [{ role: 'user', data: 'Actual latest turn' }] as any
+        )
+
+        expect(picked).toEqual({ role: 'user', content: 'Actual latest turn' })
+    })
+
     it('tells the Director what to correct on its validation retry', async () => {
         const packet = (language: string) => `[SITUATION]
 The scene is established.
@@ -284,7 +306,7 @@ ${language}`
         })
     })
 
-    it('streams Director reasoning and packet progress while retaining only the normalized packet', async () => {
+    it('requests Director output without streaming and normalizes the final response', async () => {
         const packet = `[SITUATION]
 The scene is established.
 [FACTS]
@@ -299,91 +321,33 @@ Respond to the current turn.
 Vietnamese`
         const raw = `<Thoughts>Checking continuity.</Thoughts>\n${packet}`
         mocks.requestChatData.mockResolvedValueOnce({
-            type: 'streaming',
-            result: directorStream(
-                { '0': '<Thoughts>Checking continuity.' },
-                { '0': raw }
-            ),
+            type: 'success',
+            result: raw,
             model: 'director-model',
         })
-        const onProgress = vi.fn()
 
         const result = await runDirector({
             formated: [{ role: 'system', content: 'Director prompt' }],
             director: { aiModel: 'director-model' } as any,
             schema: defaultPacketSchema(),
-            onProgress,
         })
 
         expect(result).toMatchObject({ ok: true, packet, attempts: 1 })
         expect(result.attemptLog[0]).toMatchObject({
-            responseType: 'streaming',
+            responseType: 'success',
             rawResponse: raw,
             normalizedPacket: packet,
         })
-        expect(onProgress).toHaveBeenNthCalledWith(1, '', 1)
-        expect(onProgress).toHaveBeenLastCalledWith(raw, 1)
         expect(mocks.requestChatData.mock.calls[0][0]).toMatchObject({
-            useStreaming: true,
-            forceStreaming: true,
+            useStreaming: false,
         })
+        expect(mocks.requestChatData.mock.calls[0][0].forceStreaming).toBeUndefined()
     })
 
-    it('retries an invalid streamed Director response and reports the new attempt', async () => {
-        const packet = `[SITUATION]
-The scene is established.
-[FACTS]
-The greeting happened.
-[CHARACTER]
-The character is attentive.
-[WRITING STYLE]
-There is no writing style baseline.
-[DIRECTION]
-Respond to the current turn.
-[OUTPUT LANGUAGE]
-Vietnamese`
-        mocks.requestChatData
-            .mockResolvedValueOnce({
-                type: 'streaming',
-                result: directorStream({ '0': 'I will roleplay instead.' }),
-                model: 'director-model',
-            })
-            .mockResolvedValueOnce({
-                type: 'streaming',
-                result: directorStream({ '0': packet }),
-                model: 'director-model',
-            })
-        const progress: [string, number][] = []
-
-        const result = await runDirector({
-            formated: [{ role: 'system', content: 'Director prompt' }],
-            director: { aiModel: 'director-model' } as any,
-            schema: defaultPacketSchema(),
-            onProgress: (raw, attempt) => progress.push([raw, attempt]),
-        })
-
-        expect(result).toMatchObject({ ok: true, attempts: 2, packet })
-        expect(result.attemptLog.map((attempt) => attempt.responseType)).toEqual(['streaming', 'streaming'])
-        expect(progress).toEqual([
-            ['', 1],
-            ['I will roleplay instead.', 1],
-            ['', 2],
-            [packet, 2],
-        ])
-    })
-
-    it('cancels the Director stream and returns an abort result without waiting for completion', async () => {
-        const controller = new AbortController()
-        const cancel = vi.fn()
-        const stream = new ReadableStream<Record<string, string>>({
-            start(streamController) {
-                streamController.enqueue({ '0': '<Thoughts>Still working' })
-            },
-            cancel,
-        })
+    it('rejects an unexpected streamed Director response instead of consuming it', async () => {
         mocks.requestChatData.mockResolvedValueOnce({
             type: 'streaming',
-            result: stream,
+            result: new ReadableStream(),
             model: 'director-model',
         })
 
@@ -391,21 +355,46 @@ Vietnamese`
             formated: [{ role: 'system', content: 'Director prompt' }],
             director: { aiModel: 'director-model' } as any,
             schema: defaultPacketSchema(),
-            abortSignal: controller.signal,
-            onProgress: (raw) => {
-                if (raw) {
-                    controller.abort()
-                }
-            },
         })
+
+        expect(result).toMatchObject({
+            ok: false,
+            attempts: 1,
+            error: 'unexpected response type: streaming',
+            attemptLog: [{ responseType: 'streaming' }],
+        })
+    })
+
+    it('passes the abort signal to the non-streaming Director request', async () => {
+        const controller = new AbortController()
+        mocks.requestChatData.mockImplementationOnce((
+            _request: unknown,
+            _mode: unknown,
+            signal: AbortSignal | null
+        ) => new Promise((resolve) => {
+            signal?.addEventListener('abort', () => resolve({
+                type: 'fail',
+                result: 'Aborted',
+                model: 'director-model',
+            }), { once: true })
+        }))
+
+        const pending = runDirector({
+            formated: [{ role: 'system', content: 'Director prompt' }],
+            director: { aiModel: 'director-model' } as any,
+            schema: defaultPacketSchema(),
+            abortSignal: controller.signal,
+        })
+        controller.abort()
+        const result = await pending
 
         expect(result).toMatchObject({ ok: false, error: 'Aborted', attempts: 1 })
         expect(result.attemptLog[0]).toMatchObject({
-            responseType: 'streaming',
-            rawResponse: '<Thoughts>Still working',
+            responseType: 'fail',
+            rawResponse: 'Aborted',
             error: 'Aborted',
         })
-        expect(cancel).toHaveBeenCalledOnce()
+        expect(mocks.requestChatData.mock.calls[0][2]).toBe(controller.signal)
     })
 
     it('keeps the selected greeting in Director context and explains its role', () => {
@@ -502,6 +491,29 @@ Vietnamese`
         expect(migrated.find((row) => row.name === 'SITUATION')).toBe(
             staleSchema.find((row) => row.name === 'SITUATION')
         )
+    })
+
+    it('migrates only the old default handoff descriptions to history-focused rows', () => {
+        const oldDefaults = defaultPacketSchema().map((row) => {
+            if (row.name === 'SITUATION') {
+                return { ...row, description: 'Where and when the scene is, who is present, positions, physical and clothing state. Copy exact details, do not paraphrase.' }
+            }
+            if (row.name === 'FACTS') {
+                return { ...row, description: 'Things that already happened, taken from the history and the lore. Only what this turn needs. Preserve names and verbatim quotes in their original language.' }
+            }
+            if (row.name === 'CHARACTER') {
+                return { ...row, description: 'Traits that are active right now, current emotion, current goal, attitude toward the user, plus 2-4 voice anchors taken from the character card. Do not rewrite the voice.' }
+            }
+            return row
+        })
+        oldDefaults.push({ name: 'CUSTOM', description: 'Keep my custom contract.', required: false })
+
+        const migrated = ensureWritingStyleSchema(oldDefaults)
+
+        expect(migrated.find((row) => row.name === 'SITUATION')?.description).toContain('established by chat history')
+        expect(migrated.find((row) => row.name === 'FACTS')?.description).toContain('history-dependent')
+        expect(migrated.find((row) => row.name === 'CHARACTER')?.description).toContain('activated or changed by history')
+        expect(migrated.find((row) => row.name === 'CUSTOM')).toEqual(oldDefaults.at(-1))
     })
 
     it('validates the declared writing-style baseline', () => {
@@ -624,5 +636,49 @@ Vietnamese`
         expect(instruction).toContain('["Exact key"]')
         expect(instruction).not.toContain('Use at least one image')
         expect(instruction).not.toContain('<img src="EXACT_KEY_FROM_LIST">')
+    })
+
+    it('preserves an explicit pimg protocol even when the custom marker is absent', () => {
+        const writer = {
+            promptTemplate: [{
+                type: 'plain',
+                type2: 'normal',
+                role: 'system',
+                text: 'Place images between paragraphs as <pimg src="Exact key">.',
+            }],
+        }
+        const currentChar = {
+            prebuiltAssetCommand: true,
+            additionalAssets: [['Akatsuki Miyabi.office.happy smile', 'path', 'png']],
+        }
+
+        const instruction = buildWriterAssetInstruction(writer as any, currentChar as any)
+
+        expect(instruction).toContain('<pimg src="EXACT_KEY_FROM_LIST">')
+        expect(instruction).toContain('Never replace <pimg> with <img>')
+        expect(instruction).toContain('["Akatsuki Miyabi.office.happy smile"]')
+        expect(instruction).not.toContain('- Format every image as: <img src=')
+    })
+
+    it('detects pimg from the retained active context and reinforces it after the packet', () => {
+        const currentChar = {
+            prebuiltAssetCommand: true,
+            additionalAssets: [['Akatsuki Miyabi.office.lovestruck', 'path', 'png']],
+        }
+        const formated = buildWriterFormated({
+            base: [{
+                role: 'system',
+                content: 'Timestamp protocol. Place character images as <pimg src="EXACT_ASSET_KEY">.',
+            }],
+            writer: { promptTemplate: [] } as any,
+            packet: '[DIRECTION]\nContinue the scene.',
+            userMessage: { role: 'user', content: 'Mẹ ơi?' },
+            currentChar: currentChar as any,
+        })
+        const protocol = formated.find((message) => message.content.startsWith('Authoritative image'))?.content
+
+        expect(protocol).toContain('<pimg src="EXACT_KEY_FROM_LIST">')
+        expect(protocol).toContain('["Akatsuki Miyabi.office.lovestruck"]')
+        expect(protocol).toContain('Never replace <pimg> with <img>')
     })
 })

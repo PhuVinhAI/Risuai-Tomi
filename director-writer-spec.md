@@ -61,9 +61,9 @@ Danh sách này vừa là hướng dẫn cho Director vừa là luật validate 
 
 | Header | Bắt buộc | Nội dung |
 |---|---|---|
-| `[SITUATION]` | có | Ở đâu, lúc nào, ai có mặt, vị trí, trạng thái cơ thể và quần áo |
-| `[FACTS]` | có | Chuyện đã xảy ra thật, lấy từ history và lore, chỉ phần cần cho lượt này |
-| `[CHARACTER]` | có | Trait đang active, cảm xúc, mục tiêu, thái độ với user, voice anchor |
+| `[SITUATION]` | có | Trạng thái cảnh hiện tại do history thiết lập: ở đâu, lúc nào, ai có mặt và vị trí cần thiết |
+| `[FACTS]` | có | Chỉ sự kiện, lời hứa, knowledge và thread phụ thuộc history cần cho lượt này |
+| `[CHARACTER]` | có | State tạm thời đang active do history: cảm xúc, mục tiêu, thái độ và condition hiện tại |
 | `[WRITING STYLE]` | có | Baseline văn phong: Writer gần nhất, nếu chưa có thì greeting, nếu cả hai không có thì NONE; chỉ ghi đặc điểm quan sát được và override style explicit từ user |
 | `[DIRECTION]` | có | Ý đồ kịch của lượt này — mục duy nhất được nói chuyện chưa xảy ra |
 | `[OUTPUT LANGUAGE]` | có | Ngôn ngữ Writer phải viết |
@@ -104,7 +104,8 @@ bình, “cải thiện”, hoặc thêm gu riêng từ card, history khác, th�
   ngôn ngữ gốc**, không dịch. Packet bị localize sẽ fail validation và Director phải retry.
 - Tên riêng, câu trích nguyên văn, vị trí, ai đang biết chuyện gì — ghi y nguyên, cấm diễn giải.
   Đây là thứ vỡ đầu tiên khi nén.
-- Voice anchor lấy từ card, Director chỉ được chọn trait nào active, không được viết lại voice.
+- Character card và voice instruction đi thẳng sang Writer. Director chỉ ghi state, emotion, goal hoặc
+  attitude đang được history kích hoạt hay thay đổi; không tóm tắt lại toàn bộ card.
 - `[DIRECTION]` ghi ý đồ, **không** storyboard từng câu. Chi tiết quá thì Writer thành máy
   paraphrase và mất hết lợi ích.
 - Tin nhắn user **không** nằm trong packet. Nó được gửi riêng như một message role user thật.
@@ -113,10 +114,12 @@ bình, “cải thiện”, hoặc thêm gu riêng từ card, history khác, th�
 
 ## Prompt gửi cho Writer
 
-Ba phần ngữ cảnh cốt lõi, cộng output protocol trực tiếp nếu character bật tính năng tương ứng:
+Writer nhận toàn bộ prompt đã render của preset đang hoạt động, chỉ bỏ message thuộc chat history.
+Packet thay history bằng continuity hiện tại và hướng kịch bản:
 
 ```
-system: <prompt vai Writer> + <jailbreak> + <luật POV/agency>
+system: <prompt vai Writer>
+...:    <character + persona + lore/world + memory + author note + preset/output protocols>
 system: <packet>
 system: <output protocol + danh sách asset key chính xác, nếu có>
 user:   <nguyên văn tin nhắn user>
@@ -128,18 +131,18 @@ nhưng không được thêm, dịch, rút gọn hoặc thay key; Director cũng
 
 Auto-strip khi preset có tick Writer — app tự bỏ, user không phải dựng template trống:
 
-- **Bỏ**: history, character card, lorebook, memory
-- **Giữ**: prompt vai Writer, jailbreak, luật POV và luật không điều khiển nhân vật user
+- **Bỏ**: chỉ các message chat history đã được đánh dấu `removable`
+- **Giữ**: character card, persona, lorebook/world, memory, author note, jailbreak, POV/agency,
+  timestamp/speaker/markup/image protocol và các cấu hình còn lại của preset
 
-Giữ mấy cái đó là bắt buộc, không phải tùy chọn. Failure mode nặng nhất mà nghiên cứu tìm được
-là ràng buộc toàn cục bị rơi lúc chia việc.
+Director vì vậy không cần chép lại dữ liệu tĩnh. `[SITUATION]`, `[FACTS]` và `[CHARACTER]` chỉ chuyển
+phần continuity phụ thuộc history; trọng tâm của packet là state hiện tại và `[DIRECTION]`.
 
-Trong lúc Director chạy, raw stream (bao gồm reasoning mà provider công khai và packet đang viết)
-được hiển thị trong vùng trạng thái dưới input. Nó chỉ là preview, không được thêm vào chat history;
-nút Stop hủy cùng `AbortController` và đóng stream ngay. Khi Director hoàn tất, chỉ packet đã normalize
-và validate từ final response nằm ngoài `<Thoughts>`, `<think>` hoặc `<analysis>` mới được chuyển cho
-Writer. Packet nằm trong reasoning, kể cả đủ header, không bao giờ được cứu hộ; reasoning bị cắt trước
-closing tag được bỏ đến EOF rồi Director retry.
+Director luôn gọi provider ở chế độ non-streaming. Trong lúc chờ, UI chỉ hiện trạng thái đang chỉ đạo;
+nút Stop hủy request qua `AbortController`. Khi Director hoàn tất, chỉ packet đã normalize và validate
+từ final response nằm ngoài `<Thoughts>`, `<think>` hoặc `<analysis>` mới được chuyển cho Writer. Packet
+nằm trong reasoning, kể cả đủ header, không bao giờ được cứu hộ; reasoning bị cắt trước closing tag được
+bỏ đến EOF rồi Director retry.
 
 ## Prompt cho Director
 

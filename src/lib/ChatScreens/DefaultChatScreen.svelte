@@ -54,7 +54,6 @@
     let fileInput:string[] = $state([])
     let showNewMessageButton = $state(false)
     let chatsInstance: any = $state()
-    let directorStatusElement: HTMLDivElement | undefined = $state()
     let isScrollingToMessage = $state(false)
     let { openModuleList = $bindable(false), openChatList = $bindable(false), customStyle = '' }: Props = $props();
     let currentCharacter = $derived(DBState.db.characters[$selectedCharID])
@@ -70,16 +69,6 @@
             scrollToMessage(index)
         }
     })
-    $effect(() => {
-        if($directorStatus && directorStatusElement){
-            void tick().then(() => {
-                if(directorStatusElement){
-                    directorStatusElement.scrollTop = directorStatusElement.scrollHeight
-                }
-            })
-        }
-    })
-
     async function scrollToMessage(index: number){
         // Forces the loading of past messages not rendered on the screen
         isScrollingToMessage = true
@@ -596,8 +585,7 @@
             {#if $directorStatus}
                 <div class="w-full flex justify-center px-4">
                     <div
-                        bind:this={directorStatusElement}
-                        class="text-textcolor2 text-xs leading-relaxed whitespace-pre-wrap break-words w-full max-w-4xl max-h-48 overflow-y-auto border-l-2 border-borderc px-3 py-2 select-text"
+                        class="text-textcolor2 text-xs leading-relaxed w-full max-w-4xl border-l-2 border-borderc px-3 py-2"
                         aria-label={language.directorWorking}
                     >{$directorStatus}</div>
                 </div>

@@ -1265,7 +1265,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
             }
             if(chat.role === 'system'){
                 const endf = formated.at(-1)
-                if(endf && endf.role === 'system' && endf.memo === chat.memo && endf.name === chat.name){
+                if(endf && endf.role === 'system' && endf.memo === chat.memo && endf.name === chat.name && endf.removable === chat.removable){
                     formated[formated.length - 1].content += '\n\n' + chat.content
                 }
                 else{
@@ -1650,9 +1650,6 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                     styleBase: dwStyleBase,
                     currentChar,
                     abortSignal,
-                    onProgress: (rawResponse) => {
-                        directorStatus.set(rawResponse || language.directorWorking)
-                    },
                 })
             }
             finally{
@@ -1697,6 +1694,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
 
         const dwDirectorTokens = inputTokens
         formated = buildWriterFormated({
+            base: formated,
             writer: dw.writer,
             packet: dwPacket,
             userMessage: pickLatestUserMessage(formated, dwMessages),
