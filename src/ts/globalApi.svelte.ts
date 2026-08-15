@@ -550,11 +550,22 @@ export function getFetchData(id: string) {
 }
 
 const knownHostes = ["localhost", "127.0.0.1", "0.0.0.0"];
+const hubProxiedHosts = ["risuai.xyz", "nightly.risuai.xyz", "stable.risuai.xyz", ...knownHostes];
 const webLocalNetworkBlockedMessage = "웹에서는 사설망 직접 호출 불가. Tauri 또는 LAN Node self-host 사용";
 const defaultProxyJobHeartbeatSec = 15;
 
 function getProxy2Url() {
-    return !isTauri && !isNodeServer ? `${hubURL}/proxy2` : `/proxy2`;
+    if (isTauri || isNodeServer) {
+        return `/proxy2`;
+    }
+    //Any other deploy of this build ships its own /proxy2 — the Cloudflare Pages Function in
+    //public/functions — so requests and the API keys inside them stay on that host instead of
+    //passing through the official hub. Dev servers and the official domains have no local
+    //function to hit, so they keep using the hub.
+    if (import.meta.env.DEV || hubProxiedHosts.includes(location.hostname)) {
+        return `${hubURL}/proxy2`;
+    }
+    return `/proxy2`;
 }
 
 function getProxyStreamJobBaseUrl() {
