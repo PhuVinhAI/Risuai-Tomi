@@ -1,5 +1,5 @@
 import { downloadFile, forageStorage } from '../globalApi.svelte'
-import { getDirectorWriterSettings } from './directorWriter'
+import { getDirectorWriterSettings, type WritingStyleBase } from './directorWriter'
 
 const LOG_KEY = 'directorWriter/log.jsonl'
 const MAX_ENTRIES = 2000
@@ -13,6 +13,8 @@ export interface DirectorWriterLogEntry {
     /** Why the Director ran, or why it did not. */
     reason: string
     historyHashMatched: boolean
+    /** Which text supplies the prose-style baseline for this packet. */
+    styleBase?: WritingStyleBase
     director?: {
         preset: string
         model: string

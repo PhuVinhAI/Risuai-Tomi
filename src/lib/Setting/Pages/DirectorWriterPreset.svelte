@@ -12,6 +12,7 @@
         defaultDirectorPrompt,
         defaultPacketSchema,
         defaultWriterPrompt,
+        ensureWritingStyleSchema,
         type DirectorWriterRole,
     } from "src/ts/process/directorWriter";
 
@@ -60,6 +61,12 @@
         preset.dwPrompt ??= ''
         if (preset.dwRole === 'director' && !preset.dwSchema?.length) {
             preset.dwSchema = defaultPacketSchema()
+        }
+        else if (preset.dwRole === 'director' && preset.dwSchema) {
+            const schema = ensureWritingStyleSchema(preset.dwSchema)
+            if (schema !== preset.dwSchema) {
+                preset.dwSchema = schema
+            }
         }
     })
 </script>

@@ -14,7 +14,8 @@ import {
     buildWriterFormated,
     getCachedPacket,
     getPacketSchema,
-    getRolePrompt,
+    getDirectorInstruction,
+    getWritingStyleContext,
     hashHistoryPrefix,
     hashString,
     packetCacheKey,
@@ -1579,10 +1580,17 @@ export async function sendChat(chatProcessIndex = -1,arg:{
     const dw = (arg.preview || arg.previewPrompt) ? null : resolveDirectorWriter()
     if(dw){
         const dwMessages = DBState.db.characters[selectedChar].chats[selectedChat].message
+        const dwFirstMessage = nowChatroom.type === 'group'
+            ? ''
+            : (currentChat.fmIndex === -1
+                ? nowChatroom.firstMessage
+                : nowChatroom.alternateGreetings[currentChat.fmIndex]) ?? ''
+        const dwStyleContext = getWritingStyleContext(dwMessages, dwFirstMessage, currentChar?.chaId ?? '')
+        const dwStyleBase = dwStyleContext.base
         const dwSchema = getPacketSchema(dw.director)
-        const dwPromptHash = hashString(getRolePrompt(dw.director, 'director'))
+        const dwPromptHash = hashString(getDirectorInstruction(dw.director, dwStyleBase))
         const dwSchemaHash = hashString(JSON.stringify(dwSchema))
-        const dwHistoryHash = hashHistoryPrefix(dwMessages)
+        const dwHistoryHash = hashHistoryPrefix(dwMessages, dwFirstMessage)
         const dwCacheKey = packetCacheKey({
             historyHash: dwHistoryHash,
             directorName: dw.director.name ?? '',
@@ -1631,12 +1639,15 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                     director: dw.director,
                     schema: dwSchema,
                     currentChar,
+                    styleBase: dwStyleBase,
+                    styleSample: dwStyleContext.sample,
                 })
                 dwDirectorPromptHash = hashString(JSON.stringify(dwDirectorFormated))
                 dwRun = await runDirector({
                     formated: dwDirectorFormated,
                     director: dw.director,
                     schema: dwSchema,
+                    styleBase: dwStyleBase,
                     currentChar,
                     abortSignal,
                 })
@@ -1657,6 +1668,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                     path: dwPath,
                     reason: dwReason,
                     historyHashMatched: dwHashMatched,
+                    styleBase: dwStyleBase,
                     directorPromptHash: dwPromptHash,
                     schemaHash: dwSchemaHash,
                     validation: dwRun.validation ? { ...dwRun.validation, attempts: dwRun.attempts } : undefined,
@@ -1702,6 +1714,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
             path: dwPath,
             reason: dwReason,
             historyHashMatched: dwHashMatched,
+            styleBase: dwStyleBase,
             directorPromptHash: dwPromptHash,
             schemaHash: dwSchemaHash,
             director: dwRun ? {

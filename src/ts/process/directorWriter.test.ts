@@ -1,0 +1,333 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+
+const mocks = vi.hoisted(() => ({
+    db: {
+        jailbreakToggle: true,
+        chainOfThought: true,
+        directorWriter: undefined,
+        botPresets: [],
+    },
+    requestChatData: vi.fn(),
+}))
+
+vi.mock('../storage/database.svelte', () => ({
+    getDatabase: () => mocks.db,
+}))
+
+vi.mock('./request/request', () => ({
+    requestChatData: mocks.requestChatData,
+}))
+
+vi.mock('./scripts', () => ({
+    risuChatParser: (value: string) => value,
+}))
+
+vi.mock('../parser/chatML', () => ({
+    parseChatML: () => [],
+}))
+
+vi.mock('./templates/templates', () => ({
+    prebuiltPresets: { OAI2: {} },
+}))
+
+vi.mock('../polyfill', () => ({
+    safeStructuredClone: (value: unknown) => JSON.parse(JSON.stringify(value)),
+}))
+
+import {
+    buildDirectorFormated,
+    buildWriterAssetInstruction,
+    buildWriterFormated,
+    defaultPacketSchema,
+    ensureWritingStyleSchema,
+    getDirectorInstruction,
+    getPacketSchema,
+    getWritingStyleContext,
+    hashHistoryPrefix,
+    normalizeDirectorPacket,
+    runDirector,
+    validatePacket,
+} from './directorWriter'
+
+describe('Director-Writer packet boundaries', () => {
+    beforeEach(() => {
+        mocks.db.jailbreakToggle = true
+        mocks.db.chainOfThought = true
+        mocks.requestChatData.mockReset()
+    })
+
+    it('removes exposed reasoning before handing the packet to the Writer', () => {
+        const raw = `<Thoughts>
+Need to include:
+[SITUATION]
+[FACTS]
+</Thoughts>
+This is a preamble that must not reach the Writer.
+[SITUATION]
+The selected greeting established the room.
+
+[FACTS]
+The greeting happened.`
+
+        const packet = normalizeDirectorPacket(raw, defaultPacketSchema())
+
+        expect(packet).toBe(`[SITUATION]
+The selected greeting established the room.
+
+[FACTS]
+The greeting happened.`)
+        expect(packet).not.toContain('<Thoughts>')
+        expect(packet).not.toContain('preamble')
+    })
+
+    it('rejects a localized OUTPUT LANGUAGE value so the Director retries', () => {
+        const basePacket = `[SITUATION]
+The scene is established.
+[FACTS]
+The greeting happened.
+[CHARACTER]
+The character is attentive.
+[WRITING STYLE]
+BASE: NONE
+[DIRECTION]
+Respond to the current turn.
+[OUTPUT LANGUAGE]
+LANGUAGE_VALUE`
+
+        expect(validatePacket(
+            basePacket.replace('LANGUAGE_VALUE', 'Vietnamese'),
+            defaultPacketSchema()
+        ).ok).toBe(true)
+        expect(validatePacket(
+            basePacket.replace('LANGUAGE_VALUE', 'Tiếng Việt'),
+            defaultPacketSchema()
+        )).toMatchObject({
+            ok: false,
+            missing: ['[OUTPUT LANGUAGE] (language name must be written in English)'],
+        })
+    })
+
+    it('rejects localized packet prose while allowing quoted source-language text', () => {
+        const packet = (situation: string) => `[SITUATION]
+${situation}
+[FACTS]
+The greeting says “안녕하세요. 오늘 하루는 잘 보냈니?” and is established history.
+[CHARACTER]
+The character is attentive.
+[WRITING STYLE]
+BASE: NONE
+[DIRECTION]
+Respond to the current turn.
+[OUTPUT LANGUAGE]
+Vietnamese`
+
+        expect(validatePacket(packet(
+            'The scene is in the living room with both characters present.'
+        ), defaultPacketSchema()).ok).toBe(true)
+        expect(validatePacket(packet(
+            'Cảnh đang ở trong phòng khách và nhân vật hiện tại đang đứng với người dùng.'
+        ), defaultPacketSchema())).toMatchObject({
+            ok: false,
+            missing: ['(packet descriptions and instructions must be written in English)'],
+        })
+    })
+
+    it('tells the Director what to correct on its validation retry', async () => {
+        const packet = (language: string) => `[SITUATION]
+The scene is established.
+[FACTS]
+The greeting happened.
+[CHARACTER]
+The character is attentive.
+[WRITING STYLE]
+BASE: NONE
+[DIRECTION]
+Respond to the current turn.
+[OUTPUT LANGUAGE]
+${language}`
+        mocks.requestChatData
+            .mockResolvedValueOnce({ type: 'success', result: packet('Tiếng Việt'), model: 'director-model' })
+            .mockResolvedValueOnce({ type: 'success', result: packet('Vietnamese'), model: 'director-model' })
+
+        const result = await runDirector({
+            formated: [{ role: 'system', content: 'Director prompt' }],
+            director: { aiModel: 'director-model' } as any,
+            schema: defaultPacketSchema(),
+        })
+
+        expect(result).toMatchObject({ ok: true, attempts: 2 })
+        const secondRequest = mocks.requestChatData.mock.calls[1][0]
+        expect(secondRequest.formated.at(-1)?.content).toContain(
+            '[OUTPUT LANGUAGE] (language name must be written in English)'
+        )
+    })
+
+    it('keeps the selected greeting in Director context and explains its role', () => {
+        const base = [
+            { role: 'system' as const, content: '[Start a new chat]' },
+            { role: 'assistant' as const, content: 'The exact selected greeting' },
+            { role: 'user' as const, content: 'Latest turn' },
+        ]
+        const director = { dwRole: 'director' as const, dwPrompt: '' }
+
+        const formated = buildDirectorFormated({
+            base,
+            director: director as any,
+            schema: defaultPacketSchema(),
+            styleBase: 'greeting',
+            styleSample: 'The exact selected greeting',
+        })
+
+        expect(formated.slice(0, -2)).toEqual(base)
+        expect(formated.at(-2)?.content).toContain('WRITING_STYLE_SOURCE')
+        expect(formated.at(-2)?.content).toContain('The exact selected greeting')
+        expect(formated.at(-1)?.content).toContain('selected greeting/first message')
+        expect(formated.at(-1)?.content).toContain('Writing-style baseline: GREETING')
+        expect(formated.at(-1)?.content).toContain('Write every packet description and instruction in English')
+        expect(getDirectorInstruction(director as any)).toContain('OUTPUT LANGUAGE')
+    })
+
+    it('adds the writing-style handoff to legacy and custom schemas', () => {
+        const legacySchema = defaultPacketSchema().filter((row) => row.name !== 'WRITING STYLE')
+        const migrated = ensureWritingStyleSchema(legacySchema)
+        const styleIndex = migrated.findIndex((row) => row.name === 'WRITING STYLE')
+
+        expect(styleIndex).toBeGreaterThan(migrated.findIndex((row) => row.name === 'CHARACTER'))
+        expect(styleIndex).toBeLessThan(migrated.findIndex((row) => row.name === 'DIRECTION'))
+        expect(migrated[styleIndex]).toMatchObject({ required: true })
+        expect(ensureWritingStyleSchema(migrated)).toBe(migrated)
+
+        const greetingSchema = [
+            ...legacySchema.slice(0, 3),
+            { name: 'GREETING STYLE', description: 'old', required: false },
+            ...legacySchema.slice(3),
+        ]
+        expect(ensureWritingStyleSchema(greetingSchema).find((row) => row.name === 'WRITING STYLE')).toBeTruthy()
+
+        const customSchema = [{ name: 'CUSTOM', description: '', required: true }]
+        expect(ensureWritingStyleSchema(customSchema)).toEqual([
+            customSchema[0],
+            expect.objectContaining({ name: 'WRITING STYLE', required: true }),
+        ])
+    })
+
+    it('validates the declared writing-style baseline', () => {
+        const preset = { dwSchema: defaultPacketSchema() } as any
+        const schema = getPacketSchema(preset)
+        const packet = (base: string) => `[SITUATION]
+The scene is established.
+[FACTS]
+The greeting happened.
+[CHARACTER]
+The character is attentive.
+[WRITING STYLE]
+${base}
+Long paragraphs; §sound§ between beats.
+[DIRECTION]
+Respond to the current turn.
+[OUTPUT LANGUAGE]
+Vietnamese`
+
+        expect(validatePacket(packet('BASE: PREVIOUS WRITER'), schema, 'previous-writer').ok).toBe(true)
+        expect(validatePacket(packet('BASE: GREETING'), schema, 'greeting').ok).toBe(true)
+        expect(validatePacket(packet('BASE: NONE'), schema, 'none').ok).toBe(true)
+        expect(validatePacket(packet('BASE: GREETING'), schema, 'previous-writer')).toMatchObject({
+            ok: false,
+            missing: ['[WRITING STYLE] (first line must be BASE: PREVIOUS WRITER)'],
+        })
+    })
+
+    it('promotes the latest Writer reply over greeting style', () => {
+        const writerReply = {
+            role: 'char',
+            data: 'Writer output',
+            generationInfo: { directorPacket: '[SITUATION]\n...' },
+        }
+
+        expect(getWritingStyleContext([], 'Greeting text')).toEqual({
+            base: 'greeting',
+            sample: 'Greeting text',
+        })
+        expect(getWritingStyleContext([], '')).toEqual({ base: 'none', sample: '' })
+        expect(getWritingStyleContext([writerReply] as any, 'Greeting text')).toEqual({
+            base: 'previous-writer',
+            sample: 'Writer output',
+        })
+        expect(getWritingStyleContext([{
+            ...writerReply,
+            saying: 'other-character',
+        }] as any, 'Greeting text', 'current-character').base).toBe('greeting')
+        expect(getWritingStyleContext([
+            writerReply,
+        ] as any, 'Greeting text', 'current-character').base).toBe('greeting')
+        expect(getWritingStyleContext([
+            writerReply,
+            { role: 'user', data: 'reset', disabled: 'allBefore' },
+        ] as any, 'Greeting text').base).toBe('greeting')
+    })
+
+    it('includes the selected greeting in packet cache identity', () => {
+        const messages = [{ role: 'user', data: 'Same user turn' }] as any
+
+        expect(hashHistoryPrefix(messages, 'Greeting A')).not.toBe(
+            hashHistoryPrefix(messages, 'Greeting B')
+        )
+
+        const resetHistory = [
+            { role: 'char', data: 'old', disabled: 'allBefore' },
+            { role: 'user', data: 'Same user turn' },
+        ] as any
+        expect(hashHistoryPrefix(resetHistory, 'Ignored greeting')).toBe(
+            hashHistoryPrefix([{ role: 'user', data: 'Same user turn' }] as any)
+        )
+    })
+
+    it('gives the Writer exact asset keys after the packet', () => {
+        const writer = { promptTemplate: [] }
+        const currentChar = {
+            prebuiltAssetCommand: true,
+            prebuiltAssetExclude: ['excluded-path'],
+            additionalAssets: [
+                ['Miyabi_home_smile', 'included-path', 'png'],
+                ['Miyabi excluded', 'excluded-path', 'png'],
+            ],
+        }
+
+        const instruction = buildWriterAssetInstruction(writer as any, currentChar as any)
+        expect(instruction).toContain('["Miyabi_home_smile"]')
+        expect(instruction).not.toContain('Miyabi excluded')
+        expect(instruction).toContain('Never invent, translate, normalize, shorten, or paraphrase a key')
+
+        const formated = buildWriterFormated({
+            writer: writer as any,
+            packet: '[FORBIDDEN]\nDo not include image tags.',
+            userMessage: { role: 'user', content: 'Continue' },
+            currentChar: currentChar as any,
+        })
+        const packetIndex = formated.findIndex((item) => item.content.startsWith('[FORBIDDEN]'))
+        const protocolIndex = formated.findIndex((item) => item.content.startsWith('Authoritative image'))
+        const userIndex = formated.findIndex((item) => item.role === 'user')
+
+        expect(packetIndex).toBeGreaterThan(-1)
+        expect(protocolIndex).toBeGreaterThan(packetIndex)
+        expect(userIndex).toBeGreaterThan(protocolIndex)
+    })
+
+    it('keeps custom image placement rules but still supplies the exact key allowlist', () => {
+        const writer = {
+            promptTemplate: [{
+                type: 'plain',
+                text: '{{//@customimageinstruction}}Use my custom protocol',
+            }],
+        }
+        const currentChar = {
+            prebuiltAssetCommand: true,
+            additionalAssets: [['Exact key', 'path', 'png']],
+        }
+
+        const instruction = buildWriterAssetInstruction(writer as any, currentChar as any)
+        expect(instruction).toContain('Follow the Writer preset\'s custom image instruction')
+        expect(instruction).toContain('["Exact key"]')
+        expect(instruction).not.toContain('Use at least one image')
+    })
+})

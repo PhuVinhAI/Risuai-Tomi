@@ -52,14 +52,17 @@ Mỗi dòng ba thứ:
 - **Tick bắt buộc** — dùng cho validate
 
 Danh sách này vừa là hướng dẫn cho Director vừa là luật validate — một nguồn, không lệch nhau.
+`[WRITING STYLE]` là contract bắt buộc của pipeline: schema cũ hoặc custom schema thiếu dòng này
+được tự chèn trước `[DIRECTION]`/`[OUTPUT LANGUAGE]`, hoặc ở cuối nếu không có hai dòng đó.
 
-### 7 header mặc định
+### 9 header mặc định
 
 | Header | Bắt buộc | Nội dung |
 |---|---|---|
 | `[SITUATION]` | có | Ở đâu, lúc nào, ai có mặt, vị trí, trạng thái cơ thể và quần áo |
 | `[FACTS]` | có | Chuyện đã xảy ra thật, lấy từ history và lore, chỉ phần cần cho lượt này |
 | `[CHARACTER]` | có | Trait đang active, cảm xúc, mục tiêu, thái độ với user, voice anchor |
+| `[WRITING STYLE]` | có | Baseline văn phong: Writer gần nhất, nếu chưa có thì greeting, nếu cả hai không có thì NONE; chỉ ghi đặc điểm quan sát được và override style explicit từ user |
 | `[DIRECTION]` | có | Ý đồ kịch của lượt này — mục duy nhất được nói chuyện chưa xảy ra |
 | `[OUTPUT LANGUAGE]` | có | Ngôn ngữ Writer phải viết |
 | `[FORBIDDEN]` | không | Không điều khiển nhân vật user, chưa được hòa giải, chưa tiết lộ X |
@@ -68,26 +71,50 @@ Danh sách này vừa là hướng dẫn cho Director vừa là luật validate 
 
 `[SITUATION]`, `[FACTS]`, `[CHARACTER]` là FACT. `[DIRECTION]` là DIRECTION. `[FORBIDDEN]` là chặn.
 
+`[WRITING STYLE]` luôn bắt đầu bằng đúng một trong ba dòng: `BASE: PREVIOUS WRITER`,
+`BASE: GREETING`, hoặc `BASE: NONE`. Thứ tự ưu tiên baseline:
+
+1. Phản hồi gần nhất do Writer của pipeline sinh ra và vẫn còn bật trong history của nhân vật đó.
+2. Greeting/first message đang được chọn, chỉ khi chưa có phản hồi Writer.
+3. Không có cả hai thì `NONE`; Writer tự chọn văn phong.
+
+Director chỉ được phổ cập những đặc điểm quan sát trực tiếp từ baseline: độ dài gần đúng, mật độ,
+nhịp đoạn, tỷ lệ kể/thoại, POV/thì, format nhãn thoại và dấu ngoặc, typography hiệu ứng âm thanh,
+markup nhấn mạnh, mật độ giác quan, cùng pattern số lượng/vị trí thẻ ảnh. Greeting vẫn là canon của
+cảnh nhưng ngừng làm nguồn style ngay khi đã có phản hồi Writer.
+
+Nếu tin user mới nhất yêu cầu rõ một thay đổi về độ dài, tone, POV, format hoặc cách đặt media,
+Director ghi nó dưới `USER OVERRIDE` và chỉ đổi đúng chiều được yêu cầu; các chiều còn lại tiếp tục
+theo baseline. Nội dung diễn biến bình thường không được coi là yêu cầu style. Director cấm phê
+bình, “cải thiện”, hoặc thêm gu riêng từ card, history khác, thể loại hay sở thích của chính nó.
+
 ### Quy tắc nội dung packet
 
-- Nhãn và cấu trúc viết tiếng Anh. Nội dung trích dẫn **giữ nguyên ngôn ngữ gốc**, không dịch.
+- Nhãn và toàn bộ lời mô tả/chỉ dẫn trong packet viết tiếng Anh. Nội dung trích dẫn **giữ nguyên
+  ngôn ngữ gốc**, không dịch. Packet bị localize sẽ fail validation và Director phải retry.
 - Tên riêng, câu trích nguyên văn, vị trí, ai đang biết chuyện gì — ghi y nguyên, cấm diễn giải.
   Đây là thứ vỡ đầu tiên khi nén.
 - Voice anchor lấy từ card, Director chỉ được chọn trait nào active, không được viết lại voice.
 - `[DIRECTION]` ghi ý đồ, **không** storyboard từng câu. Chi tiết quá thì Writer thành máy
   paraphrase và mất hết lợi ích.
 - Tin nhắn user **không** nằm trong packet. Nó được gửi riêng như một message role user thật.
-- Không đặt độ dài mong muốn trong packet. `maxResponse` của preset Writer lo việc đó.
+- Không tự đặt độ dài mong muốn mới. `[WRITING STYLE]` được ghi độ dài gần đúng đã quan sát từ
+  baseline, hoặc độ dài user vừa yêu cầu; `maxResponse` của preset Writer vẫn là trần kỹ thuật.
 
 ## Prompt gửi cho Writer
 
-Đúng ba phần:
+Ba phần ngữ cảnh cốt lõi, cộng output protocol trực tiếp nếu character bật tính năng tương ứng:
 
 ```
 system: <prompt vai Writer> + <jailbreak> + <luật POV/agency>
 system: <packet>
+system: <output protocol + danh sách asset key chính xác, nếu có>
 user:   <nguyên văn tin nhắn user>
 ```
+
+Danh sách asset key ở system message sau packet luôn là allowlist authoritative, kể cả Writer preset
+có `customimageinstruction`. Custom instruction vẫn quyết định số lượng/vị trí ảnh nhưng không được
+thêm, dịch, rút gọn hoặc thay key; Director cũng không được tắt protocol này trong packet.
 
 Auto-strip khi preset có tick Writer — app tự bỏ, user không phải dựng template trống:
 
@@ -263,6 +290,7 @@ Mỗi lượt một dòng JSONL, append. Nội dung mỗi dòng:
 - Thời điểm, chat id, message id
 - Đường nào chạy: mới / reroll-writer / continue
 - Hash khớp hay không, và lý do gọi Director
+- Baseline văn phong: previous-writer / greeting / none
 - Director: preset, model, token vào ra, thời gian, **packet nguyên văn**
 - Director: **chỉ hash và số token của prompt đầu vào**, không lưu nguyên văn
 - Writer: preset, model, token, độ dài output
@@ -394,10 +422,6 @@ Nemotron), model nhỏ thì bị đẩy sang mode chia nhỏ.
 - Mở lại chat cũ — Director không được chạy
 - Director trả về prose thay vì packet — phải fail và retry
 - Writer trả lời sai ngôn ngữ
-
-
-
-
 
 
 
