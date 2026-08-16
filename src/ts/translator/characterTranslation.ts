@@ -351,9 +351,9 @@ export async function translateCharacterText(
     return translated;
 }
 
-function stripJsonFence(result: string): string {
+function stripBatchFence(result: string): string {
     const trimmed = stripReasoning(result).trim();
-    const fenced = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+    const fenced = trimmed.match(/^```[A-Za-z0-9_-]*\s*([\s\S]*?)\s*```$/i);
     return fenced?.[1]?.trim() ?? trimmed;
 }
 
@@ -361,41 +361,33 @@ function parseTranslationBatchResponse(
     result: string,
     protectedTexts: ProtectedTranslationText[],
 ): string[] {
-    const cleaned = stripJsonFence(result);
-    let parsed: unknown;
-    try {
-        parsed = JSON.parse(cleaned);
-    }
-    catch {
-        const objectStart = cleaned.indexOf("{");
-        const objectEnd = cleaned.lastIndexOf("}");
-        if (objectStart === -1 || objectEnd <= objectStart) {
-            throw new Error("Translation batch did not return valid JSON.");
-        }
-        try {
-            parsed = JSON.parse(cleaned.slice(objectStart, objectEnd + 1));
-        }
-        catch {
-            throw new Error("Translation batch did not return valid JSON.");
-        }
-    }
-
-    const items = (parsed as { items?: unknown })?.items;
-    if (!Array.isArray(items) || items.length !== protectedTexts.length) {
-        throw new Error("Translation batch returned the wrong number of items.");
-    }
-
+    const cleaned = stripBatchFence(result);
+    const markers = protectedTexts.map((_, index) =>
+        `<<<RISU_BATCH_ITEM_${index.toString().padStart(4, "0")}>>>`
+    );
     return protectedTexts.map((protectedText, index) => {
-        const expectedId = `item_${index}`;
-        const item = items.find((candidate) =>
-            typeof candidate === "object"
-            && candidate !== null
-            && (candidate as { id?: unknown }).id === expectedId
-        ) as { text?: unknown } | undefined;
-        if (typeof item?.text !== "string" || !item.text.trim()) {
-            throw new Error(`Translation batch is missing ${expectedId}.`);
+        const marker = markers[index];
+        const markerStart = cleaned.indexOf(marker);
+        if (markerStart === -1 || cleaned.indexOf(marker, markerStart + marker.length) !== -1) {
+            throw new Error(`Translation batch did not preserve item marker ${index + 1}.`);
         }
-        return restoreProtectedSyntax(item.text, protectedText);
+        const contentStart = markerStart + marker.length;
+        const nextMarkerStart = index + 1 < markers.length
+            ? cleaned.indexOf(markers[index + 1], contentStart)
+            : cleaned.length;
+        if (nextMarkerStart === -1) {
+            throw new Error(`Translation batch did not preserve item marker ${index + 2}.`);
+        }
+
+        let translated = cleaned.slice(contentStart, nextMarkerStart);
+        if (translated.startsWith("\r\n")) translated = translated.slice(2);
+        else if (translated.startsWith("\n")) translated = translated.slice(1);
+        if (translated.endsWith("\r\n")) translated = translated.slice(0, -2);
+        else if (translated.endsWith("\n")) translated = translated.slice(0, -1);
+        if (!translated.trim()) {
+            throw new Error(`Translation batch is missing item ${index + 1}.`);
+        }
+        return restoreProtectedSyntax(translated, protectedText);
     });
 }
 
@@ -420,9 +412,13 @@ async function translateCharacterTextBatch(
             protectedTexts.flatMap((item) => item.structuralSymbols),
         )).slice(0, 48),
     };
-    const batchInstruction = `The user message is a JSON transport envelope with an \"items\" array.
-Translate only each item's \"text\" value. Return only valid JSON in exactly the same shape and with every \"id\" unchanged.
-The JSON envelope is transport syntax, not source content. Do not add, remove, merge, split, or reorder items.`;
+    const batchMarkers = protectedTexts.map((_, index) =>
+        `<<<RISU_BATCH_ITEM_${index.toString().padStart(4, "0")}>>>`
+    );
+    const batchInstruction = `The user message is plain text split into items by RISU_BATCH_ITEM marker lines.
+Translate the natural-language text after each marker until the next marker.
+Return plain text only. Copy every marker exactly once, unchanged, on its own line and in the original order.
+Do not return JSON, Markdown fences, explanations, labels, or any text before the first marker.`;
     const response = await requestChatData(
         {
             formated: [
@@ -432,12 +428,9 @@ The JSON envelope is transport syntax, not source content. Do not add, remove, m
                 },
                 {
                     role: "user",
-                    content: JSON.stringify({
-                        items: protectedTexts.map((item, index) => ({
-                            id: `item_${index}`,
-                            text: item.masked,
-                        })),
-                    }),
+                    content: protectedTexts.map((item, index) =>
+                        `${batchMarkers[index]}\n${item.masked}`
+                    ).join("\n"),
                 },
             ],
             bias: {},
@@ -550,13 +543,12 @@ function settleRequestedStop(
     return null;
 }
 
-export function createCharacterTranslationSession(
-    char: character,
+function createTranslationSessionFromSlots(
+    slots: TranslationSlot[],
     preset: CharacterTranslationPreset,
     scope: CharacterTranslationScope,
     executionOptions: Partial<CharacterTranslationExecutionOptions> = {},
 ): CharacterTranslationSession {
-    const slots = collectCharacterTranslationSlots(char, scope);
     const resolvedOptions = resolveExecutionOptions(executionOptions);
     const batches = createTranslationBatches(slots, resolvedOptions);
     const session: CharacterTranslationSession = {
@@ -583,6 +575,36 @@ export function createCharacterTranslationSession(
     });
 
     return session;
+}
+
+export function createCharacterTranslationSession(
+    char: character,
+    preset: CharacterTranslationPreset,
+    scope: CharacterTranslationScope,
+    executionOptions: Partial<CharacterTranslationExecutionOptions> = {},
+): CharacterTranslationSession {
+    return createTranslationSessionFromSlots(
+        collectCharacterTranslationSlots(char, scope),
+        preset,
+        scope,
+        executionOptions,
+    );
+}
+
+export function createCharacterTextTranslationSession(
+    text: string,
+    preset: CharacterTranslationPreset,
+    apply: (translated: string) => void,
+    executionOptions: Partial<CharacterTranslationExecutionOptions> = {},
+): CharacterTranslationSession {
+    const slots: TranslationSlot[] = [];
+    addSlot(slots, "Greeting", text, apply);
+    return createTranslationSessionFromSlots(
+        slots,
+        preset,
+        "greeting",
+        executionOptions,
+    );
 }
 
 export function pauseCharacterTranslation(session: CharacterTranslationSession): void {

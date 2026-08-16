@@ -22,6 +22,7 @@ import {
     collectCharacterTranslationSlots,
     continueCharacterTranslation,
     createCharacterTranslationSession,
+    createCharacterTextTranslationSession,
     pauseCharacterTranslation,
     translateCharacterCard,
     translateCharacterText,
@@ -97,21 +98,14 @@ function makeCharacter(): character {
 
 function translateRequestContent(request: { formated: { content: string }[] }, prefix = "VI:"): string {
     const content = request.formated[1].content;
-    try {
-        const parsed = JSON.parse(content) as {
-            items?: { id: string; text: string }[];
-        };
-        if (Array.isArray(parsed.items)) {
-            return JSON.stringify({
-                items: parsed.items.map((item) => ({
-                    id: item.id,
-                    text: `${prefix}${item.text}`,
-                })),
-            });
-        }
-    }
-    catch {
-        // Single-item requests deliberately retain the plain-text protocol.
+    const matches = Array.from(content.matchAll(/<<<RISU_BATCH_ITEM_\d{4}>>>/g));
+    if (matches.length > 0) {
+        return matches.map((match, index) => {
+            const start = (match.index ?? 0) + match[0].length;
+            const end = matches[index + 1]?.index ?? content.length;
+            const source = content.slice(start, end).replace(/^\r?\n/, "").replace(/\r?\n$/, "");
+            return `${match[0]}\n${prefix}${source}`;
+        }).join("\n");
     }
     return `${prefix}${content}`;
 }
@@ -254,6 +248,8 @@ describe("character-card translation", () => {
         expect(count).toBeGreaterThan(10);
         expect(mocks.requestChatData.mock.calls.length).toBeLessThan(count);
         expect(mocks.requestChatData.mock.calls.length).toBe(2);
+        expect(sourceTexts.every((source) => source.includes("RISU_BATCH_ITEM"))).toBe(true);
+        expect(sourceTexts.every((source) => !source.trim().startsWith("{"))).toBe(true);
         expect(mocks.requestChatData.mock.calls.every(([request]) =>
             request.useStreaming === false
             && request.noMultiGen === true
@@ -355,5 +351,24 @@ describe("character-card translation", () => {
         );
 
         expect(session.batchTotal).toBe(1);
+    });
+
+    it("translates only the greeting selected by the main chat UI", async () => {
+        let selectedGreeting = "Alternate hello.";
+        const session = createCharacterTextTranslationSession(
+            selectedGreeting,
+            makePreset(),
+            (translated) => {
+                selectedGreeting = translated;
+            },
+        );
+        mocks.requestChatData.mockResolvedValue({
+            type: "success",
+            result: "Lời chào thay thế.",
+        });
+
+        await expect(continueCharacterTranslation(session)).resolves.toBe("completed");
+        expect(selectedGreeting).toBe("Lời chào thay thế.");
+        expect(mocks.requestChatData).toHaveBeenCalledTimes(1);
     });
 });

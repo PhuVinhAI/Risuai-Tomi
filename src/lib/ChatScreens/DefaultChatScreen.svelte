@@ -878,6 +878,18 @@
                         isLastMemory={false}
                         currentPage={(DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].fmIndex ?? -1) + 2}
                         totalPages={DBState.db.characters[$selectedCharID].alternateGreetings.length + 1}
+                        onGreetingTranslated={(translated) => {
+                            const character = DBState.db.characters[$selectedCharID]
+                            if (character.type === 'group') return
+                            const chat = character.chats[character.chatPage]
+                            const greetingIndex = chat.fmIndex ?? -1
+                            if (greetingIndex === -1) {
+                                character.firstMessage = translated
+                            }
+                            else if (character.alternateGreetings[greetingIndex] !== undefined) {
+                                character.alternateGreetings[greetingIndex] = translated
+                            }
+                        }}
 
                     />
                     {#if (aiLawApplies() && DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].message.length === 0)}

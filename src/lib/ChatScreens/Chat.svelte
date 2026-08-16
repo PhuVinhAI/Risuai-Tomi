@@ -24,6 +24,7 @@
     import ChatBody from './ChatBody.svelte'
     import PopupButton from "../UI/PopupButton.svelte";
     import PartialEditController from './PartialEditController.svelte';
+    import GreetingTranslationControls from './GreetingTranslationControls.svelte';
     import { getLLMCache, setLLMCache } from "../../ts/translator/translator"
 
     let translating = $state(false)
@@ -51,6 +52,7 @@
         altGreeting?: boolean;
         currentPage?: number;
         totalPages?: number;
+        onGreetingTranslated?: ((translated: string) => void) | null;
         isComment?: boolean;
         disabled?: boolean | 'allBefore';
         isOptimizedStreamingMessage?: boolean;
@@ -76,6 +78,7 @@
         altGreeting = false,
         currentPage = 1,
         totalPages = 1,
+        onGreetingTranslated = null,
         isComment = false,
         disabled = false,
         isOptimizedStreamingMessage = false,
@@ -480,6 +483,14 @@
         {:else}
             <span class="text-xs">{statusMessage}</span>
             <div class="flex items-center ml-2 gap-2">
+                {#if firstMessage && onGreetingTranslated}
+                    {#key currentPage}
+                        <GreetingTranslationControls
+                            source={message}
+                            onTranslated={onGreetingTranslated}
+                        />
+                    {/key}
+                {/if}
                 {@render translationButton()}
                 {#if window.innerWidth >= 640}
                     {@render majorIconButtonsBody(false)}

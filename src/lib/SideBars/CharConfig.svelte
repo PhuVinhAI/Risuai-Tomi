@@ -5,7 +5,7 @@
     import { DBState } from 'src/ts/stores.svelte';
     import { onDestroy, untrack } from 'svelte';
     import { CharConfigSubMenu, MobileGUI, ShowRealmFrameStore, selectedCharID, hypaV3ModalOpen } from "../../ts/stores.svelte";
-    import { PlusIcon, SmileIcon, TrashIcon, UserIcon, ActivityIcon, BookIcon, User, Braces, Volume2Icon, DownloadIcon, HardDriveUploadIcon, Share2Icon, ImageIcon, ImageOffIcon, ArrowUp, ArrowDown, MessageSquareTextIcon, BookOpenCheckIcon, LoaderCircleIcon, PauseIcon, PlayIcon, XIcon } from '@lucide/svelte'
+    import { PlusIcon, SmileIcon, TrashIcon, UserIcon, ActivityIcon, BookIcon, User, Braces, Volume2Icon, DownloadIcon, HardDriveUploadIcon, Share2Icon, ImageIcon, ImageOffIcon, ArrowUp, ArrowDown, BookOpenCheckIcon, LoaderCircleIcon, PauseIcon, PlayIcon, XIcon } from '@lucide/svelte'
     import Check from "../UI/GUI/CheckInput.svelte";
     import { addCharEmotion, addingEmotion, getCharImage, rmCharEmotion, selectCharImg, makeGroupImage, removeChar, changeCharImage } from "../../ts/characters";
     import LoreBook from "./LoreBook/LoreBookSetting.svelte";
@@ -385,23 +385,7 @@
         <span class="text-textcolor">{language.description} <Help key="charDesc"/></span>
         <TextAreaInput highlight margin="both" autocomplete="off" bind:value={(DBState.db.characters[$selectedCharID] as character).desc}></TextAreaInput>
         <span class="text-textcolor2 mb-6 text-sm">{tokens.desc} {language.tokens}</span>
-        <div class="flex items-center justify-between gap-2">
-            <span class="text-textcolor">{language.firstMessage} <Help key="charFirstMessage"/></span>
-            <Button
-                size="sm"
-                styled="outlined"
-                className="flex shrink-0 items-center justify-center gap-2"
-                disabled={characterTranslationScope !== null || !DBState.db.characters[$selectedCharID].firstMessage.trim()}
-                onclick={() => runCharacterTranslation('greeting')}
-            >
-                {#if characterTranslationScope === 'greeting' && (characterTranslationStatus === 'running' || characterTranslationStatus === 'pausing')}
-                    <LoaderCircleIcon class="animate-spin" size={16} />
-                {:else}
-                    <MessageSquareTextIcon size={16} />
-                {/if}
-                <span>{language.translateGreetingToVietnamese}</span>
-            </Button>
-        </div>
+        <span class="text-textcolor">{language.firstMessage} <Help key="charFirstMessage"/></span>
         <TextAreaInput highlight margin="both" autocomplete="off" bind:value={DBState.db.characters[$selectedCharID].firstMessage}></TextAreaInput>
         <span class="text-textcolor2 mb-6 text-sm">{tokens.firstMsg} {language.tokens}</span>
 
