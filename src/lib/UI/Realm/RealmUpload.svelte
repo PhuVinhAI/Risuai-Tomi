@@ -6,8 +6,8 @@
     }}>
         
         {#if !DBState.db.account}
-            <span class="font-bold text-2xl w-full">You must login to Risu Account upload to RisuRealm</span>
-            <span class="text-textcolor2">You can login in app settings 🡲 account</span>
+            <span class="font-bold text-2xl w-full">{language.realmLoginRequired}</span>
+            <span class="text-textcolor2">{language.realmLoginHint}</span>
             <button onclick={async () => {
                 close()
             }} class="text-textcolor mt-2 text-lg bg-transparent border-solid border-1 border-borderc p-4 hover:bg-blue-800 transition-colors cursor-pointer">OK</button>
@@ -15,7 +15,7 @@
         {:else}
         <h1 class="font-bold text-2xl w-full">
             <span>
-                Share {char.name} to {language.hub}
+                {language.shareCharacterToRealm(char.name)}
             </span>
             <button class="float-right text-textcolor2 hover:text-green-500" onclick={close}>
                 <XIcon />
@@ -26,11 +26,11 @@
         {/if}
         <div class="mb-2 mt-2 w-full border-t-2 border-t-bgcolor"></div>
         <span class="text-textcolor">{language.creatorNotes}</span>
-        <span class="text-textcolor2 text-sm">A description that displays when you search and when you first open a bot.</span>
-        <span class="text-textcolor2 text-sm">More than 20 characters.</span>
+        <span class="text-textcolor2 text-sm">{language.realmCreatorNotesDesc}</span>
+        <span class="text-textcolor2 text-sm">{language.realmCreatorNotesMinLength}</span>
         <MultiLangInput bind:value={char.creatorNotes} />
         <span class="text-textcolor">{language.tags}</span>
-        <span class="text-textcolor2 text-sm">Tags to search your character easily. latin alphabets only. seperate by comma.</span>
+        <span class="text-textcolor2 text-sm">{language.realmTagsDesc}</span>
         <TextInput placeholder="" bind:value={tags} oninput={() => {
             tags = tags.replace(/[^a-zA-Z,\-]/g, '').toLocaleLowerCase().replace(/ /g, '')
         }} />
@@ -47,10 +47,10 @@
 
         {#if char.license !== 'CC BY-NC-SA 4.0' && char.license !== 'CC BY-SA 4.0'}
 
-        <span class="text-textcolor mt-4">License</span>
-        <span class="text-textcolor2 text-sm">You can choose license for the downloaders to limit the usages of your card's prompt.</span>
+        <span class="text-textcolor mt-4">{language.license}</span>
+        <span class="text-textcolor2 text-sm">{language.licenseDesc}</span>
         <SelectInput bind:value={license}>
-            <OptionInput value="">None</OptionInput>
+            <OptionInput value="">{language.none}</OptionInput>
             {#each Object.keys(CCLicenseData) as ccl}
                 <OptionInput value={ccl}>{CCLicenseData[ccl][2]} ({CCLicenseData[ccl][1]})</OptionInput>
             {/each}
@@ -59,31 +59,31 @@
         {/if}
         {#if !char.realmId}
             <div class="flex items-center flex-wrap mt-4">
-                <button class="bg-bgcolor p-2 rounded-lg" class:ring-1={!privateMode} onclick={() => {privateMode = false}}>🌏 Show Author ID</button>
-                <button class="bg-bgcolor p-2 rounded-lg ml-2" class:ring-1={privateMode} onclick={() => {privateMode = true}}>🔒 Anonymized</button>
+                <button class="bg-bgcolor p-2 rounded-lg" class:ring-1={!privateMode} onclick={() => {privateMode = false}}>🌏 {language.showAuthorId}</button>
+                <button class="bg-bgcolor p-2 rounded-lg ml-2" class:ring-1={privateMode} onclick={() => {privateMode = true}}>🔒 {language.anonymized}</button>
             </div>
             <div class="flex items-center flex-wrap mt-2">
-                <button class="bg-bgcolor p-2 rounded-lg" class:ring-1={!nsfwMode} onclick={() => {nsfwMode = false}}>🎖️ Safe</button>
+                <button class="bg-bgcolor p-2 rounded-lg" class:ring-1={!nsfwMode} onclick={() => {nsfwMode = false}}>🎖️ {language.safeContent}</button>
                 <button class="bg-bgcolor p-2 rounded-lg ml-2" class:ring-1={nsfwMode} onclick={() => {nsfwMode = true}}>🔞 NSFW</button>
             </div>
         {:else}
             <div class="flex items-center flex-wrap mt-2">
-                <button class="bg-bgcolor p-2 rounded-lg" class:ring-1={!update} onclick={() => {nsfwMode = false}}>🚀 Update</button>
-                <button class="bg-bgcolor p-2 rounded-lg ml-2" class:ring-1={update} onclick={() => {nsfwMode = true}}>⭐ Upload Newly</button>
+                <button class="bg-bgcolor p-2 rounded-lg" class:ring-1={!update} onclick={() => {update = false}}>🚀 {language.update}</button>
+                <button class="bg-bgcolor p-2 rounded-lg ml-2" class:ring-1={update} onclick={() => {update = true}}>⭐ {language.uploadNew}</button>
             </div>
         {/if}
         {#if nsfwMode}
-            <span class="text-textcolor2 text-sm">Grotesque Contents and non-adult characters with NSFW would be banned.</span>
+            <span class="text-textcolor2 text-sm">{language.realmNsfwWarning}</span>
         {/if}
         <Button onclick={async () => {
             await sleep(1) // wait for the input to be updated
             const enNotes = creatorNotes.en
             const latin1 = /^[\x00-\xFF]*$/
             if(enNotes.length < 10){
-                alertError("English version of creator notes must be longer than 10 characters")
+                alertError(language.realmCreatorNotesEnglishTooShort)
             }
             if(!latin1.test(enNotes)){
-                alertError("English version of creator notes must contain only Latin-1 characters")
+                alertError(language.realmCreatorNotesEnglishLatinOnly)
             }
             shareRisuHub2($state.snapshot(char) as character, {
                 anon: privateMode,
@@ -134,6 +134,6 @@
     let nsfwMode = $state(false)
     let license = $state("")
     let creatorNotes: {[code:string]:string} = parseMultilangString(char.creatorNotes)
-    let update = false
+    let update = $state(false)
 
 </script>

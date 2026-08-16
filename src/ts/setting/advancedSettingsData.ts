@@ -61,8 +61,8 @@ export const advancedSettingsItems: SettingItem[] = [
         helpKey: 'gptVisionQuality',
         options: {
             selectOptions: [
-                { value: 'low', label: 'Low' },
-                { value: 'high', label: 'High' }
+                { value: 'low', labelKey: 'optionLow' },
+                { value: 'high', labelKey: 'optionHigh' }
             ]
         }
     },
@@ -72,8 +72,8 @@ export const advancedSettingsItems: SettingItem[] = [
         id: 'adv.keepSessionAlive', type: 'select', labelKey: 'keepSessionAlive', bindKey: 'keepSessionAlive', helpKey: 'keepSessionAlive',
         options: {
             selectOptions: [
-                { value: 'off', label: 'Off' },
-                { value: 'sound', label: 'Via Sound' },
+                { value: 'off', labelKey: 'disabled' },
+                { value: 'sound', labelKey: 'optionViaSound' },
             ]
         }
     },
@@ -84,8 +84,8 @@ export const advancedSettingsItems: SettingItem[] = [
         id: 'adv.heightMode', type: 'select', labelKey: 'heightMode', bindKey: 'heightMode',
         options: {
             selectOptions: [
-                { value: 'normal', label: 'Normal' },
-                { value: 'percent', label: 'Percent' },
+                { value: 'normal', labelKey: 'normal' },
+                { value: 'percent', labelKey: 'optionPercent' },
                 { value: 'vh', label: 'VH' },
                 { value: 'dvh', label: 'DVH' },
                 { value: 'svh', label: 'SVH' },
@@ -110,7 +110,7 @@ export const advancedSettingsItems: SettingItem[] = [
         condition: () => !isNodeServer && !isTauri,
         options: {
             segmentOptions: [
-                { value: '', label: 'Default' },
+                { value: '', labelKey: 'optionDefault' },
                 { value: 'eu', label: 'EU (GDPR)' },
                 { value: 'fedramp', label: 'US (FedRAMP)' }
             ]

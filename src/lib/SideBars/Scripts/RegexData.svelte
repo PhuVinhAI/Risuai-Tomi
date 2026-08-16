@@ -112,7 +112,7 @@ interface Props {
             <TextInput size="sm" bind:value={value.comment} onchange={(e) => {
                 $ReloadGUIPointer += 1
             }} />
-            <span class="text-textcolor mt-4">Modification Type</span>
+            <span class="text-textcolor mt-4">{language.modificationType}</span>
             <SelectInput bind:value={value.type} onchange={(e) => {
                 $ReloadGUIPointer += 1
             }}>
@@ -133,7 +133,7 @@ interface Props {
                 <!-- <span class="text-textcolor mt-6">FLAG:</span>
                 <TextInput size="sm" bind:value={value.flag} /> -->
                 <Accordion styled name="FLAGS">
-                    <span class="text-textcolor mt-3">Normal Flag</span>
+                    <span class="text-textcolor mt-3">{language.normalFlag}</span>
                     <div class="grid w-full grid-cols-2 rounded-md border border-darkborderc">
                         {#each flags as flag, i}
                             <button class="w-full bg-darkbg border-darkborderc text-sm py-1"
@@ -150,7 +150,7 @@ interface Props {
                         {/each}
                     </div>
 
-                    <span class="text-textcolor mt-3">Order Flag</span>
+                    <span class="text-textcolor mt-3">{language.orderFlag}</span>
                     <NumberInput value={getOrder(value.flag)} onChange={(e)=>{
                         changeOrder(parseInt(e.currentTarget.value))
                     }} />
@@ -163,7 +163,7 @@ interface Props {
                         value.flag = 'g'
                     }
                 }}/>
-                <span>Custom Flag</span>
+                <span>{language.customFlag}</span>
             </div>
        </div>
     {/if}

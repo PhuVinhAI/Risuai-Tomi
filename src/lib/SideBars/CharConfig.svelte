@@ -466,7 +466,7 @@
         <span class="text-textcolor">{language.character}</span>
         <div class="p-4 gap-2 bg-bgcolor rounded-lg char-grid">
             {#if (DBState.db.characters[$selectedCharID] as groupChat).characters.length === 0}
-                <span class="text-textcolor2">No Character</span>
+                <span class="text-textcolor2">{language.noCharacter}</span>
             {:else}
                 <div></div>
                 <div class="text-center">{language.talkness}</div>
@@ -532,7 +532,7 @@
         {/if}
     {/if}
 {:else if licensed === 'private'}
-    <span>You are not allowed</span>
+    <span>{language.notAllowed}</span>
     {(() => {
         $CharConfigSubMenu = 0
     })()}
@@ -726,7 +726,7 @@
                         <PlusIcon />
                     </button>
                 {:else}
-                    <span>Loading...</span>
+                    <span>{language.loading}</span>
                 {/if}
             </div>
 
@@ -807,7 +807,7 @@
                     </tr>
                     {#if (!DBState.db.characters[$selectedCharID].additionalAssets) || DBState.db.characters[$selectedCharID].additionalAssets.length === 0}
                         <tr>
-                            <td class="text-textcolor2"> No Assets</td>
+                            <td class="text-textcolor2">{language.noAssets}</td>
                         </tr>
                     {:else}
                         {#each DBState.db.characters[$selectedCharID].additionalAssets as assets, i}
@@ -970,13 +970,13 @@
             {:else}
                 <span class="text-textcolor">{language.Speech}</span>
                 <SelectInput className="mb-4 mt-2" bind:value={(DBState.db.characters[$selectedCharID] as character).ttsSpeech}>
-                    <OptionInput value="">Auto</OptionInput>
+                    <OptionInput value="">{language.languageAutomatic}</OptionInput>
                     {#each getWebSpeechTTSVoices() as voice}
                         <OptionInput value={voice}>{voice}</OptionInput>
                     {/each}
                 </SelectInput>
                 {#if (DBState.db.characters[$selectedCharID] as character).ttsSpeech !== ''}
-                    <span class="text-red-400 text-sm">If you do not set it to Auto, it may not work properly when importing from another OS or browser.</span>
+                    <span class="text-red-400 text-sm">{language.ttsAutoPathWarning}</span>
                 {/if}
             {/if}
         {:else if DBState.db.characters[$selectedCharID].ttsMode === 'elevenlab'}
@@ -984,14 +984,14 @@
             {#await getElevenTTSVoices() then voices}
                 <span class="text-textcolor">{language.Speech}</span>
                 <SelectInput className="mb-4 mt-2" bind:value={(DBState.db.characters[$selectedCharID] as character).ttsSpeech}>
-                    <OptionInput value="">Unset</OptionInput>
+                    <OptionInput value="">{language.unset}</OptionInput>
                         {#each voices as voice}
                             <OptionInput value={voice.voice_id}>{voice.name}</OptionInput>
                         {/each}
                 </SelectInput>
             {/await}
          {:else if DBState.db.characters[$selectedCharID].ttsMode === 'VOICEVOX'}
-                <span class="text-textcolor">Speaker</span>
+                <span class="text-textcolor">{language.speaker}</span>
                 <SelectInput className="mb-4 mt-2" bind:value={DBState.db.characters[$selectedCharID].voicevoxConfig.speaker}>
                     {#await getVOICEVOXVoices() then voices}
                         {#each voices as voice}
@@ -1000,30 +1000,30 @@
                     {/await}
                 </SelectInput>
                 {#if DBState.db.characters[$selectedCharID].voicevoxConfig.speaker}
-                <span class="text=neutral-200">Style</span>
+                <span class="text=neutral-200">{language.style}</span>
                 <SelectInput className="mb-4 mt-2" bind:value={DBState.db.characters[$selectedCharID].ttsSpeech}>
                 {#each JSON.parse(DBState.db.characters[$selectedCharID].voicevoxConfig.speaker) as styles}
                         <OptionInput value={styles.id} selected={DBState.db.characters[$selectedCharID].ttsSpeech === styles.id}>{styles.name}</OptionInput>
                 {/each}
                 </SelectInput>
                 {/if}
-                <span class="text-textcolor">Speed scale</span>
+                <span class="text-textcolor">{language.speedScale}</span>
                 <NumberInput size={"sm"} marginBottom bind:value={DBState.db.characters[$selectedCharID].voicevoxConfig.SPEED_SCALE}/>
 
-                <span class="text-textcolor">Pitch scale</span>
+                <span class="text-textcolor">{language.pitchScale}</span>
                 <NumberInput size={"sm"} marginBottom bind:value={DBState.db.characters[$selectedCharID].voicevoxConfig.PITCH_SCALE}/>
 
-                <span class="text-textcolor">Volume scale</span>
+                <span class="text-textcolor">{language.volumeScale}</span>
                 <NumberInput size={"sm"} marginBottom bind:value={DBState.db.characters[$selectedCharID].voicevoxConfig.VOLUME_SCALE}/>
 
-                <span class="text-textcolor">Intonation scale</span>
+                <span class="text-textcolor">{language.intonationScale}</span>
                 <NumberInput size={"sm"} marginBottom bind:value={DBState.db.characters[$selectedCharID].voicevoxConfig.INTONATION_SCALE}/>
                 <span class="text-sm mb-2 text-textcolor2">To use VOICEVOX, you need to run a colab and put the localtunnel URL in "Settings → Other Bots". https://colab.research.google.com/drive/1tyeXJSklNfjW-aZJAib1JfgOMFarAwze</span>
         {:else if DBState.db.characters[$selectedCharID].ttsMode === 'novelai'}
-            <span class="text-textcolor">Custom Voice Seed</span>
+            <span class="text-textcolor">{language.customVoiceSeed}</span>
             <Check bind:check={DBState.db.characters[$selectedCharID].naittsConfig.customvoice}/>
             {#if !DBState.db.characters[$selectedCharID].naittsConfig.customvoice}
-                <span class="text-textcolor">Voice</span>
+                <span class="text-textcolor">{language.voice}</span>
                 <SelectInput className="mb-4 mt-2" bind:value={DBState.db.characters[$selectedCharID].naittsConfig.voice}>
                     {#await getNovelAIVoices() then voices}
                         {#each voices as voiceGroup}
@@ -1036,19 +1036,19 @@
                     {/await}
                 </SelectInput>
             {:else}
-                <span class="text-textcolor">Voice</span>
+                <span class="text-textcolor">{language.voice}</span>
                 <TextInput size={"sm"} bind:value={DBState.db.characters[$selectedCharID].naittsConfig.voice}/>
             {/if}
-            <span class="text-textcolor">Version</span>
+            <span class="text-textcolor">{language.appVersion}</span>
             <SelectInput className="mb-4 mt-2" bind:value={DBState.db.characters[$selectedCharID].naittsConfig.version}>
                 <OptionInput value="v1">v1</OptionInput>
                 <OptionInput value="v2">v2</OptionInput>
             </SelectInput>
         {:else if DBState.db.characters[$selectedCharID].ttsMode === 'openai'}
-            <span class="text-textcolor">Voice</span>
+            <span class="text-textcolor">{language.voice}</span>
             {#if !DBState.db.characters[$selectedCharID].oaiTTSConfig?.enabled}
                 <SelectInput className="mb-4 mt-2" bind:value={DBState.db.characters[$selectedCharID].oaiVoice}>
-                    <OptionInput value="">Unset</OptionInput>
+                    <OptionInput value="">{language.unset}</OptionInput>
                     {#each oaiVoices as voice}
                         <OptionInput value={voice}>{voice}</OptionInput>
                     {/each}
@@ -1059,26 +1059,26 @@
                     placeholder={DBState.db.characters[$selectedCharID].oaiVoice || 'alloy'} />
             {/if}
 
-            <span class="text-textcolor">Advanced (OpenAI-compatible endpoint)</span>
+            <span class="text-textcolor">{language.advancedOpenAIEndpoint}</span>
             <Check bind:check={DBState.db.characters[$selectedCharID].oaiTTSConfig.enabled} />
 
             {#if DBState.db.characters[$selectedCharID].oaiTTSConfig?.enabled}
-                <span class="text-textcolor">Base URL</span>
+                <span class="text-textcolor">{language.baseUrl}</span>
                 <TextInput className="mb-4 mt-2"
                     bind:value={DBState.db.characters[$selectedCharID].oaiTTSConfig.baseURL}
                     placeholder="https://api.openai.com/v1" />
 
-                <span class="text-textcolor">API Key (overrides global)</span>
+                <span class="text-textcolor">{language.apiKeyOverridesGlobal}</span>
                 <TextInput className="mb-4 mt-2" hideText={DBState.db.hideApiKey}
                     bind:value={DBState.db.characters[$selectedCharID].oaiTTSConfig.apiKey}
                     placeholder="Leave empty to use global OpenAI API key" />
 
-                <span class="text-textcolor">Model</span>
+                <span class="text-textcolor">{language.model}</span>
                 <TextInput className="mb-4 mt-2"
                     bind:value={DBState.db.characters[$selectedCharID].oaiTTSConfig.model}
                     placeholder="tts-1" />
 
-                <span class="text-textcolor">Response Format</span>
+                <span class="text-textcolor">{language.responseFormat}</span>
                 <SelectInput className="mb-4 mt-2"
                     bind:value={DBState.db.characters[$selectedCharID].oaiTTSConfig.format}>
                     <OptionInput value="mp3">mp3</OptionInput>
@@ -1090,16 +1090,16 @@
                 </SelectInput>
             {/if}
         {:else if DBState.db.characters[$selectedCharID].ttsMode === 'huggingface'}
-            <span class="text-textcolor">Model</span>
+            <span class="text-textcolor">{language.model}</span>
             <TextInput className="mb-4 mt-2" bind:value={DBState.db.characters[$selectedCharID].hfTTS.model} />
 
-            <span class="text-textcolor">Language</span>
+            <span class="text-textcolor">{language.language}</span>
             <TextInput className="mb-4 mt-2" bind:value={DBState.db.characters[$selectedCharID].hfTTS.language} placeholder="en" />
         {:else if DBState.db.characters[$selectedCharID].ttsMode === 'vits'}
             {#if DBState.db.characters[$selectedCharID].vits}
                 <span class="text-textcolor">{DBState.db.characters[$selectedCharID].vits.name ?? 'Unnamed VitsModel'}</span>
             {:else}
-                <span class="text-textcolor">No Model</span>
+                <span class="text-textcolor">{language.noModel}</span>
             {/if}
             <Button onclick={async () => {
                 const model = await registerOnnxModel()
@@ -1108,20 +1108,20 @@
                 }
             }}>{language.selectModel}</Button>
         {:else if DBState.db.characters[$selectedCharID].ttsMode === 'gptsovits'}
-            <span class="text-textcolor">Volume</span>
+            <span class="text-textcolor">{language.volume}</span>
             <SliderInput min={0.0} max={1.0} step={0.01} fixed={2} bind:value={DBState.db.characters[$selectedCharID].gptSoVitsConfig.volume}/>
             <span class="text-textcolor">URL</span>
             <TextInput className="mb-4 mt-2" bind:value={DBState.db.characters[$selectedCharID].gptSoVitsConfig.url}/>
 
-            <span class="text-textcolor">Use Auto Path</span>
+            <span class="text-textcolor">{language.useAutoPath}</span>
             <Check bind:check={DBState.db.characters[$selectedCharID].gptSoVitsConfig.use_auto_path}/>
 
             {#if !DBState.db.characters[$selectedCharID].gptSoVitsConfig.use_auto_path}
-                <span class="text-textcolor">Reference Audio Path (e.g. C:/Users/user/Downloads/GPT-SoVITS-v2-240821)</span>
+                <span class="text-textcolor">{language.referenceAudioPath}</span>
                 <TextInput className="mb-4 mt-2" bind:value={DBState.db.characters[$selectedCharID].gptSoVitsConfig.ref_audio_path}/>
             {/if}
 
-            <span class="text-textcolor">Use Long Audio</span>
+            <span class="text-textcolor">{language.useLongAudio}</span>
             <Check bind:check={DBState.db.characters[$selectedCharID].gptSoVitsConfig.use_long_audio}/>
 
             <span class="text-textcolor">Reference Audio Data (3~10s audio file)</span>
@@ -1150,44 +1150,44 @@
                     {DBState.db.characters[$selectedCharID].gptSoVitsConfig.ref_audio_data.fileName}
                 {/if}
             </Button>
-            <span class="text-textcolor">Text Language</span>
+            <span class="text-textcolor">{language.textLanguage}</span>
             <SelectInput className="mb-4 mt-2" bind:value={DBState.db.characters[$selectedCharID].gptSoVitsConfig.text_lang}>
-                <OptionInput value="auto">Multi-language Mixed</OptionInput>
-                <OptionInput value="auto_yue">Multi-language Mixed (Cantonese)</OptionInput>
-                <OptionInput value="en">English</OptionInput>
-                <OptionInput value="zh">Chinese-English Mixed</OptionInput>
-                <OptionInput value="ja">Japanese-English Mixed</OptionInput>
-                <OptionInput value="yue">Cantonese-English Mixed</OptionInput>
-                <OptionInput value="ko">Korean-English Mixed</OptionInput>
-                <OptionInput value="all_zh">Chinese</OptionInput>
-                <OptionInput value="all_ja">Japanese</OptionInput>
-                <OptionInput value="all_yue">Cantonese</OptionInput>
-                <OptionInput value="all_ko">Korean</OptionInput>
+                <OptionInput value="auto">{language.multiLanguageMixed}</OptionInput>
+                <OptionInput value="auto_yue">{language.multiLanguageMixedCantonese}</OptionInput>
+                <OptionInput value="en">{language.languageEnglish}</OptionInput>
+                <OptionInput value="zh">{language.chineseEnglishMixed}</OptionInput>
+                <OptionInput value="ja">{language.japaneseEnglishMixed}</OptionInput>
+                <OptionInput value="yue">{language.cantoneseEnglishMixed}</OptionInput>
+                <OptionInput value="ko">{language.koreanEnglishMixed}</OptionInput>
+                <OptionInput value="all_zh">{language.languageChinese}</OptionInput>
+                <OptionInput value="all_ja">{language.languageJapanese}</OptionInput>
+                <OptionInput value="all_yue">{language.languageCantonese}</OptionInput>
+                <OptionInput value="all_ko">{language.languageKorean}</OptionInput>
             </SelectInput>
 
             {#if !DBState.db.characters[$selectedCharID].gptSoVitsConfig.use_long_audio}
-                <span class="text-textcolor">Use Reference Audio Script</span>
+                <span class="text-textcolor">{language.useReferenceAudioScript}</span>
                 <Check bind:check={DBState.db.characters[$selectedCharID].gptSoVitsConfig.use_prompt}/>
             {/if}
 
             {#if DBState.db.characters[$selectedCharID].gptSoVitsConfig.use_prompt && !DBState.db.characters[$selectedCharID].gptSoVitsConfig.use_long_audio}
-                <span class="text-textcolor">Reference Audio Script</span>
+                <span class="text-textcolor">{language.referenceAudioScript}</span>
                 <TextAreaInput className="mb-4 mt-2" bind:value={DBState.db.characters[$selectedCharID].gptSoVitsConfig.prompt}/>
             {/if}
 
-            <span class="text-textcolor">Reference Audio Language</span>
+            <span class="text-textcolor">{language.referenceAudioLanguage}</span>
             <SelectInput className="mb-4 mt-2" bind:value={DBState.db.characters[$selectedCharID].gptSoVitsConfig.prompt_lang}>
-                <OptionInput value="auto">Multi-language Mixed</OptionInput>
-                <OptionInput value="auto_yue">Multi-language Mixed (Cantonese)</OptionInput>
-                <OptionInput value="en">English</OptionInput>
-                <OptionInput value="zh">Chinese-English Mixed</OptionInput>
-                <OptionInput value="ja">Japanese-English Mixed</OptionInput>
-                <OptionInput value="yue">Cantonese-English Mixed</OptionInput>
-                <OptionInput value="ko">Korean-English Mixed</OptionInput>
-                <OptionInput value="all_zh">Chinese</OptionInput>
-                <OptionInput value="all_ja">Japanese</OptionInput>
-                <OptionInput value="all_yue">Cantonese</OptionInput>
-                <OptionInput value="all_ko">Korean</OptionInput>
+                <OptionInput value="auto">{language.multiLanguageMixed}</OptionInput>
+                <OptionInput value="auto_yue">{language.multiLanguageMixedCantonese}</OptionInput>
+                <OptionInput value="en">{language.languageEnglish}</OptionInput>
+                <OptionInput value="zh">{language.chineseEnglishMixed}</OptionInput>
+                <OptionInput value="ja">{language.japaneseEnglishMixed}</OptionInput>
+                <OptionInput value="yue">{language.cantoneseEnglishMixed}</OptionInput>
+                <OptionInput value="ko">{language.koreanEnglishMixed}</OptionInput>
+                <OptionInput value="all_zh">{language.languageChinese}</OptionInput>
+                <OptionInput value="all_ja">{language.languageJapanese}</OptionInput>
+                <OptionInput value="all_yue">{language.languageCantonese}</OptionInput>
+                <OptionInput value="all_ko">{language.languageKorean}</OptionInput>
             </SelectInput>
             <span class="text-textcolor">Top P</span>
             <SliderInput min={0.0} max={1.0} step={0.05} fixed={2} bind:value={DBState.db.characters[$selectedCharID].gptSoVitsConfig.top_p}/>
@@ -1201,22 +1201,22 @@
             <span class="text-textcolor">Top K</span>
             <SliderInput min={1} max={100} step={1} bind:value={DBState.db.characters[$selectedCharID].gptSoVitsConfig.top_k}/>
 
-            <span class="text-textcolor">Text Split Method</span>
+            <span class="text-textcolor">{language.textSplitMethod}</span>
             <SelectInput className="mb-4 mt-2" bind:value={DBState.db.characters[$selectedCharID].gptSoVitsConfig.text_split_method}>
-                <OptionInput value="cut0">Cut 0 (No splitting)</OptionInput>
-                <OptionInput value="cut1">Cut 1 (Split every 4 sentences)</OptionInput>
-                <OptionInput value="cut2">Cut 2 (Split every 50 characters)</OptionInput>
-                <OptionInput value="cut3">Cut 3 (Split by Chinese periods)</OptionInput>
-                <OptionInput value="cut4">Cut 4 (Split by English periods)</OptionInput>
-                <OptionInput value="cut5">Cut 5 (Split by various punctuation marks)</OptionInput>
+                <OptionInput value="cut0">{language.textSplitNone}</OptionInput>
+                <OptionInput value="cut1">{language.textSplitFourSentences}</OptionInput>
+                <OptionInput value="cut2">{language.textSplitFiftyCharacters}</OptionInput>
+                <OptionInput value="cut3">{language.textSplitChinesePeriods}</OptionInput>
+                <OptionInput value="cut4">{language.textSplitEnglishPeriods}</OptionInput>
+                <OptionInput value="cut5">{language.textSplitPunctuation}</OptionInput>
             </SelectInput>        
         {:else if DBState.db.characters[$selectedCharID].ttsMode === 'fishspeech'}
             {#await getFishSpeechModels()}
-                <span class="text-textcolor">Loading...</span>
+                <span class="text-textcolor">{language.loading}</span>
             {:then}
-                <span class="text-textcolor">Model</span>
+                <span class="text-textcolor">{language.model}</span>
                 <SelectInput className="mb-4 mt-2" bind:value={DBState.db.characters[$selectedCharID].fishSpeechConfig.model._id}>
-                    <OptionInput value="">Not selected</OptionInput>
+                    <OptionInput value="">{language.notSelected}</OptionInput>
                     {#each fishSpeechModels as model}
                         <OptionInput value={model._id}>
                             <div class="flex items-center">
@@ -1227,13 +1227,13 @@
                     {/each}
                 </SelectInput>
             {:catch}
-                <span class="text-textcolor">An error occurred while fetching the models.</span>
+                <span class="text-textcolor">{language.modelFetchError}</span>
             {/await}
 
-            <span class="text-textcolor">Chunk Length</span>
+            <span class="text-textcolor">{language.chunkLength}</span>
             <NumberInput className="mb-4 mt-2" bind:value={DBState.db.characters[$selectedCharID].fishSpeechConfig.chunk_length}/>
 
-            <span class="mt-2 text-textcolor">Normalize</span>
+            <span class="mt-2 text-textcolor">{language.normalize}</span>
             <Check className="mb-4 mt-2" bind:check={DBState.db.characters[$selectedCharID].fishSpeechConfig.normalize}/>
         {/if}
         {#if DBState.db.characters[$selectedCharID].ttsMode}

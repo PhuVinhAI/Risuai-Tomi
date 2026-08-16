@@ -8,6 +8,7 @@
     import { sleep, sortableOptions } from "src/ts/util";
     import { v4 } from "uuid";
     import { alertError } from "src/ts/alert";
+    import { language } from "src/lang";
 
     let reinitializeSortable = false;
 
@@ -363,7 +364,7 @@
             {@const visibleItems = externalLoreBooks.filter(book => (!showFolder && !book.folder) || (showFolder === book.folder))}
             {@const lastVisibleItem = visibleItems[visibleItems.length - 1]}
             {#if externalLoreBooks.length === 0}
-                <span class="text-textcolor2">No Lorebook</span>
+                <span class="text-textcolor2">{language.noLorebook}</span>
             {:else}
                 {#each externalLoreBooks as book, i}
                     {#if (!showFolder && !book.folder) || (showFolder === book.folder)}
@@ -414,7 +415,7 @@
             {@const visibleItems = DBState.db.characters[$selectedCharID].globalLore.filter(book => (!showFolder && !book.folder) || (showFolder === book.folder))}
             {@const lastVisibleItem = visibleItems[visibleItems.length - 1]}
             {#if DBState.db.characters[$selectedCharID].globalLore.length === 0}
-                <span class="text-textcolor2">No Lorebook</span>
+                <span class="text-textcolor2">{language.noLorebook}</span>
             {:else}
                 {#each DBState.db.characters[$selectedCharID].globalLore as book, i}
                     {#if (!showFolder && !book.folder) || (showFolder === book.folder)}
@@ -465,7 +466,7 @@
             {@const visibleItems = DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].localLore.filter(book => (!showFolder && !book.folder) || (showFolder === book.folder))}
             {@const lastVisibleItem = visibleItems[visibleItems.length - 1]}
             {#if DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].localLore.length === 0}
-                <span class="text-textcolor2">No Lorebook</span>
+                <span class="text-textcolor2">{language.noLorebook}</span>
             {:else}
                 {#each DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].localLore as book, i}
                     {#if (!showFolder && !book.folder) || (showFolder === book.folder)}

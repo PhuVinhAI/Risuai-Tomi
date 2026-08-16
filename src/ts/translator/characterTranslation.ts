@@ -357,26 +357,49 @@ function stripBatchFence(result: string): string {
     return fenced?.[1]?.trim() ?? trimmed;
 }
 
+const translationBatchEndMarker = "<<<RISU_BATCH_END>>>";
+
+interface ParsedTranslationBatch {
+    results: (string | undefined)[];
+    firstError: Error | null;
+}
+
+function findUniqueMarker(text: string, marker: string): number {
+    const start = text.indexOf(marker);
+    if (start === -1) return -1;
+    return text.indexOf(marker, start + marker.length) === -1 ? start : -1;
+}
+
 function parseTranslationBatchResponse(
     result: string,
     protectedTexts: ProtectedTranslationText[],
-): string[] {
+): ParsedTranslationBatch {
     const cleaned = stripBatchFence(result);
     const markers = protectedTexts.map((_, index) =>
         `<<<RISU_BATCH_ITEM_${index.toString().padStart(4, "0")}>>>`
     );
-    return protectedTexts.map((protectedText, index) => {
+    let firstError: Error | null = null;
+    const fail = (message: string) => {
+        const error = new Error(message);
+        firstError ??= error;
+        return undefined;
+    };
+    const results = protectedTexts.map((protectedText, index) => {
         const marker = markers[index];
-        const markerStart = cleaned.indexOf(marker);
-        if (markerStart === -1 || cleaned.indexOf(marker, markerStart + marker.length) !== -1) {
-            throw new Error(`Translation batch did not preserve item marker ${index + 1}.`);
+        const markerStart = findUniqueMarker(cleaned, marker);
+        if (markerStart === -1) {
+            return fail(`Translation batch did not preserve item marker ${index + 1}.`);
         }
         const contentStart = markerStart + marker.length;
-        const nextMarkerStart = index + 1 < markers.length
-            ? cleaned.indexOf(markers[index + 1], contentStart)
-            : cleaned.length;
-        if (nextMarkerStart === -1) {
-            throw new Error(`Translation batch did not preserve item marker ${index + 2}.`);
+        const nextMarker = index + 1 < markers.length
+            ? markers[index + 1]
+            : translationBatchEndMarker;
+        const nextMarkerStart = findUniqueMarker(cleaned, nextMarker);
+        if (nextMarkerStart === -1 || nextMarkerStart < contentStart) {
+            return fail(index + 1 < markers.length
+                ? `Translation batch did not preserve item marker ${index + 2}.`
+                : "Translation batch did not preserve the end marker."
+            );
         }
 
         let translated = cleaned.slice(contentStart, nextMarkerStart);
@@ -385,22 +408,24 @@ function parseTranslationBatchResponse(
         if (translated.endsWith("\r\n")) translated = translated.slice(0, -2);
         else if (translated.endsWith("\n")) translated = translated.slice(0, -1);
         if (!translated.trim()) {
-            throw new Error(`Translation batch is missing item ${index + 1}.`);
+            return fail(`Translation batch is missing item ${index + 1}.`);
         }
-        return restoreProtectedSyntax(translated, protectedText);
+        try {
+            return restoreProtectedSyntax(translated, protectedText);
+        }
+        catch (error) {
+            firstError ??= error instanceof Error ? error : new Error(`${error}`);
+            return undefined;
+        }
     });
+    return { results, firstError };
 }
 
-async function translateCharacterTextBatch(
+async function requestCharacterTextBatch(
     texts: string[],
     preset: CharacterTranslationPreset,
     abortSignal?: AbortSignal,
-): Promise<string[]> {
-    if (texts.length === 0) return [];
-    if (texts.length === 1) {
-        return [await translateCharacterText(texts[0], preset, abortSignal)];
-    }
-
+): Promise<ParsedTranslationBatch> {
     const protectedTexts = texts.map((text, index) =>
         protectSourceSyntax(text, index.toString().padStart(3, "0"))
     );
@@ -418,6 +443,7 @@ async function translateCharacterTextBatch(
     const batchInstruction = `The user message is plain text split into items by RISU_BATCH_ITEM marker lines.
 Translate the natural-language text after each marker until the next marker.
 Return plain text only. Copy every marker exactly once, unchanged, on its own line and in the original order.
+Copy ${translationBatchEndMarker} exactly once on its own line after the final translation.
 Do not return JSON, Markdown fences, explanations, labels, or any text before the first marker.`;
     const response = await requestChatData(
         {
@@ -428,9 +454,9 @@ Do not return JSON, Markdown fences, explanations, labels, or any text before th
                 },
                 {
                     role: "user",
-                    content: protectedTexts.map((item, index) =>
+                    content: `${protectedTexts.map((item, index) =>
                         `${batchMarkers[index]}\n${item.masked}`
-                    ).join("\n"),
+                    ).join("\n")}\n${translationBatchEndMarker}`,
                 },
             ],
             bias: {},
@@ -452,6 +478,73 @@ Do not return JSON, Markdown fences, explanations, labels, or any text before th
     }
 
     return parseTranslationBatchResponse(response.result, protectedTexts);
+}
+
+function collectMissingRanges(results: (string | undefined)[]): Array<[number, number]> {
+    const ranges: Array<[number, number]> = [];
+    let start = -1;
+    results.forEach((result, index) => {
+        if (result === undefined && start === -1) start = index;
+        if (result !== undefined && start !== -1) {
+            ranges.push([start, index]);
+            start = -1;
+        }
+    });
+    if (start !== -1) ranges.push([start, results.length]);
+    return ranges;
+}
+
+async function translateCharacterTextBatch(
+    texts: string[],
+    preset: CharacterTranslationPreset,
+    abortSignal?: AbortSignal,
+): Promise<string[]> {
+    if (texts.length === 0) return [];
+    if (texts.length === 1) {
+        return [await translateCharacterText(texts[0], preset, abortSignal)];
+    }
+
+    const parsed = await requestCharacterTextBatch(texts, preset, abortSignal);
+    const missingRanges = collectMissingRanges(parsed.results);
+    if (missingRanges.length === 0) return parsed.results as string[];
+
+    // A provider may stop at its completion-token limit after translating a
+    // valid prefix. Keep that prefix and request only the unresolved ranges.
+    // If no item was recoverable, split the batch so retries cannot repeat the
+    // same oversized request forever.
+    if (parsed.results.every((result) => result === undefined)) {
+        const midpoint = Math.ceil(texts.length / 2);
+        const first = await translateCharacterTextBatch(
+            texts.slice(0, midpoint),
+            preset,
+            abortSignal,
+        );
+        const second = await translateCharacterTextBatch(
+            texts.slice(midpoint),
+            preset,
+            abortSignal,
+        );
+        return [...first, ...second];
+    }
+
+    const recovered = [...parsed.results];
+    for (const [start, end] of missingRanges) {
+        const retry = await translateCharacterTextBatch(
+            texts.slice(start, end),
+            preset,
+            abortSignal,
+        );
+        retry.forEach((translation, index) => {
+            recovered[start + index] = translation;
+        });
+    }
+
+    const unresolvedIndex = recovered.findIndex((result) => result === undefined);
+    if (unresolvedIndex !== -1) {
+        throw parsed.firstError
+            ?? new Error(`Translation batch is missing item ${unresolvedIndex + 1}.`);
+    }
+    return recovered as string[];
 }
 
 function normalizePositiveInteger(value: unknown, fallback: number): number {

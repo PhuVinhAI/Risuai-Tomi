@@ -22,25 +22,25 @@
     const relatedLinks: RelatedLink[] = [
       {
         title: "Discord",
-        description: "Join our Discord server to chat with other users and the developer.",
+        description: language.relatedDiscordDesc,
         href: "https://discord.gg/Exy3NrqkGm",
         logoIcon: "paper-airplane"
       },
       {
-        title: "Website",
-        description: "See the official website for the project.",
+        title: language.website,
+        description: language.relatedWebsiteDesc,
         href: "https://risuai.net",
         logoIcon: "globe"
       },
       {
         title: "GitHub",
-        description: "View the source code and contribute to the project.",
+        description: language.relatedGitHubDesc,
         href: "https://github.com/kwaroran/RisuAI",
         logoIcon: "source"
       },
       {
-        title: "Email",
-        description: "Contact the developer directly.",
+        title: language.email,
+        description: language.relatedEmailDesc,
         href: "mailto:support@risuai.net",
         logoIcon: "mail"
       }
@@ -49,14 +49,14 @@
 <div class="h-full w-full flex flex-col overflow-y-auto items-center">
     {#if !$OpenRealmStore}
       <Title />
-      <h3 class="text-textcolor2 mt-1">Version {getVersionString()}</h3>
+      <h3 class="text-textcolor2 mt-1">{language.appVersion} {getVersionString()}</h3>
     {/if}
     <div class="w-full flex p-4 flex-col text-textcolor max-w-4xl">
       {#if !$OpenRealmStore}
       <div class="mt-4 mb-4 w-full border-t border-t-selected"></div>
-      <h1 class="text-2xl font-bold">Recently Uploaded<button class="text-base font-medium float-right p-1 bg-darkbg rounded-md hover:ring-3" onclick={() => {
+      <h1 class="text-2xl font-bold">{language.recentlyUploaded}<button class="text-base font-medium float-right p-1 bg-darkbg rounded-md hover:ring-3" onclick={() => {
         $OpenRealmStore = true
-      }}>Get More</button></h1>
+      }}>{language.getMore}</button></h1>
           {#if !DBState.db.hideRealm}
             {#await getRisuHub({
                   search: '',
@@ -77,7 +77,7 @@
                   {/each}
               </div>
             {:else}
-              <div class="text-textcolor2">Failed to load {language.hub}...</div>
+              <div class="text-textcolor2">{language.failedToLoadHub}</div>
             {/if}
           {/await}
         {:else}
@@ -85,7 +85,7 @@
         {/if}
       <div class="mt-4 mb-4 w-full border-t border-t-selected"></div>
       <h1 class="text-2xl font-bold mb-4">
-        Related Links
+        {language.relatedLinks}
       </h1>
         <div class="grid w-full grid-cols-1 gap-4 p-2 md:grid-cols-2">
           {#each relatedLinks as relatedLink}

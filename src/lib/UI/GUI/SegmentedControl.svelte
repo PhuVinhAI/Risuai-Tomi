@@ -39,7 +39,7 @@
         }
         const containerRect = containerRef.getBoundingClientRect();
         const btnRect = activeBtn.getBoundingClientRect();
-        const x = btnRect.left - containerRect.left;
+        const x = btnRect.left - containerRect.left + containerRef.scrollLeft;
         const width = btnRect.width;
         indicatorStyle = `transform: translateX(${x}px); width: ${width}px;`;
     }
@@ -100,6 +100,9 @@
         position: relative;
         display: inline-flex;
         width: fit-content;
+        max-width: 100%;
+        overflow-x: auto;
+        overflow-y: hidden;
         align-items: center;
         border-radius: 0.5rem;
         background-color: var(--risu-theme-darkbg);
@@ -138,6 +141,7 @@
         border-radius: 0.375rem;
         cursor: pointer;
         white-space: nowrap;
+        flex-shrink: 0;
         transition: color 0.2s ease;
         line-height: 1.4;
     }

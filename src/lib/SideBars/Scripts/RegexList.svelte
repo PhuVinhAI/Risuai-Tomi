@@ -6,6 +6,7 @@
     import { onDestroy, onMount } from "svelte";
   import { DownloadIcon, HardDriveUploadIcon, PlusIcon } from "@lucide/svelte";
   import { exportRegex, importRegex } from "src/ts/process/scripts";
+  import { language } from "src/lang";
     interface Props {
         value?: customscript[];
         buttons?: boolean
@@ -67,7 +68,7 @@
 {#key sorted}
     <div class="contain w-full max-w-full mt-2 flex flex-col p-3 border-selected border-1 bg-darkbg rounded-md" bind:this={ele}>
         {#if value.length === 0}
-                <div class="text-textcolor2">No Scripts</div>
+                <div class="text-textcolor2">{language.noScripts}</div>
         {/if}
         {#each value as customscript, i}
             <RegexData idx={i} bind:value={value[i]} onOpen={onOpen} onClose={onClose} onRemove={() => {

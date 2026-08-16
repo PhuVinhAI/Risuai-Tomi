@@ -240,7 +240,7 @@
                 <!-- chats in folder -->
                 <div class="risu-chat flex flex-col w-full text-textcolor border-solid border-0 border-darkborderc p-2 cursor-pointer rounded-md {folder.folded ? 'hidden' : ''}">
                     {#if chara.chats.filter(chat => chat.folderId == chara.chatFolders[i].id).length == 0}
-                    <span class="no-sort flex justify-center text-textcolor2">Empty</span>
+                    <span class="no-sort flex justify-center text-textcolor2">{language.empty}</span>
                     <div></div>
                     {:else}
                     {#each chara.chats.filter(chat => chat.folderId == chara.chatFolders[i].id) as chat}

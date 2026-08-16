@@ -340,7 +340,7 @@
         <Accordion name={"Memory"} styled>
             {@render fallbackModelList('memory')}
         </Accordion>
-        <Accordion name={"Translations"} styled>
+        <Accordion name={language.translations} styled>
             {@render fallbackModelList('translate')}
         </Accordion>
         <Accordion name={"Emotion"} styled>

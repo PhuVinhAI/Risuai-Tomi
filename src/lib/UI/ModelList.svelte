@@ -49,7 +49,7 @@
                     onclick={() => {
                         openOptions = false
                     }}
-                    title="Back"
+                    title={language.back}
                 >
                     <ArrowLeft size={20} />
                 </button>
@@ -72,16 +72,16 @@
             {/each}
             <Accordion name="Horde">
                 {#await getHordeModels()}
-                    <button class="p-2">Loading...</button>
+                    <button class="p-2">{language.hordeLoading}</button>
                 {:then models}
                     <button onclick={() => {changeModel("horde:::" + 'auto')}} class="p-2 hover:text-green-500">
-                        Auto Model
-                        <br><span class="text-textcolor2 text-sm">Performace: Auto</span>
+                        {language.autoModel}
+                        <br><span class="text-textcolor2 text-sm">{language.performanceAuto}</span>
                     </button>
                     {#each models as model}
                         <button onclick={() => {changeModel("horde:::" + model.name)}} class="p-2 hover:text-green-500">
                             {model.name.trim()}
-                            <br><span class="text-textcolor2 text-sm">Performace: {model.performance.toFixed(1)}</span>
+                            <br><span class="text-textcolor2 text-sm">{language.performance}: {model.performance.toFixed(1)}</span>
                         </button>
                     {/each}
                 {/await}
@@ -90,7 +90,7 @@
             {#if DBState?.db.customModels?.length > 0}
                 <Accordion name={language.customModels}>
                     {#each DBState.db.customModels as model}
-                        <button class="hover:bg-selected px-6 py-2 text-lg" onclick={() => {changeModel(model.id)}}>{model.name ?? "Unnamed"}</button>
+                        <button class="hover:bg-selected px-6 py-2 text-lg" onclick={() => {changeModel(model.id)}}>{model.name ?? language.unnamed}</button>
                     {/each}
                 </Accordion>
 

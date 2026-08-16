@@ -15,7 +15,7 @@
     <span class="text-textcolor mt-4"> Memory </span>
     <ModelList bind:value={DBState.db.seperateModels.memory} blankable />
 
-    <span class="text-textcolor mt-4"> Translations </span>
+    <span class="text-textcolor mt-4">{language.translations}</span>
     <ModelList bind:value={DBState.db.seperateModels.translate} blankable />
 
     <span class="text-textcolor mt-4"> Emotion </span>

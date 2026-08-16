@@ -133,9 +133,9 @@ export const modelSpecificParameterItems: SettingItem[] = [
             ctx.modelInfo.flags.includes(LLMFlags.claudeAdaptiveThinking),
         options: {
             segmentOptions: [
-                { value: 'off', label: 'Off' },
-                { value: 'budget', label: 'Budget (Manual Tokens)', condition: (ctx) => ctx.modelInfo.flags.includes(LLMFlags.claudeThinking) },
-                { value: 'adaptive', label: 'Adaptive', condition: (ctx) => ctx.modelInfo.flags.includes(LLMFlags.claudeAdaptiveThinking) },
+                { value: 'off', labelKey: 'disabled' },
+                { value: 'budget', labelKey: 'optionBudgetManualTokens', condition: (ctx) => ctx.modelInfo.flags.includes(LLMFlags.claudeThinking) },
+                { value: 'adaptive', labelKey: 'optionAdaptive', condition: (ctx) => ctx.modelInfo.flags.includes(LLMFlags.claudeAdaptiveThinking) },
             ]
         },
         keywords: ['thinking', 'type', 'mode', 'adaptive', 'budget'],
@@ -149,8 +149,8 @@ export const modelSpecificParameterItems: SettingItem[] = [
             ctx.modelInfo.flags.includes(LLMFlags.deepSeekThinkingToggle),
         options: {
             segmentOptions: [
-                { value: 'off', label: 'Off' },
-                { value: 'enabled', label: 'Enabled' },
+                { value: 'off', labelKey: 'disabled' },
+                { value: 'enabled', labelKey: 'enable' },
             ]
         },
         keywords: ['thinking', 'type', 'mode', 'deepseek', 'reasoning'],
@@ -181,11 +181,11 @@ export const modelSpecificParameterItems: SettingItem[] = [
             ctx.db.thinkingType === 'adaptive',
         options: {
             segmentOptions: [
-                { value: 'low', label: 'Low' },
-                { value: 'medium', label: 'Medium' },
-                { value: 'high', label: 'High' },
-                { value: 'xhigh', label: 'XHigh', condition: (ctx) => ctx.modelInfo.flags.includes(LLMFlags.claudeXHighEffort) },
-                { value: 'max', label: 'Max' },
+                { value: 'low', labelKey: 'optionLow' },
+                { value: 'medium', labelKey: 'optionMedium' },
+                { value: 'high', labelKey: 'optionHigh' },
+                { value: 'xhigh', labelKey: 'optionExtraHigh', condition: (ctx) => ctx.modelInfo.flags.includes(LLMFlags.claudeXHighEffort) },
+                { value: 'max', labelKey: 'max' },
             ]
         },
         keywords: ['adaptive', 'thinking', 'effort'],
@@ -200,8 +200,8 @@ export const modelSpecificParameterItems: SettingItem[] = [
             ctx.db.deepseekThinkingType === 'enabled',
         options: {
             segmentOptions: [
-                { value: 'high', label: 'High' },
-                { value: 'max', label: 'Max' },
+                { value: 'high', labelKey: 'optionHigh' },
+                { value: 'max', labelKey: 'max' },
             ]
         },
         keywords: ['deepseek', 'reasoning', 'effort'],
@@ -279,12 +279,12 @@ export const modelSpecificParameterItems: SettingItem[] = [
             ),
         options: {
             segmentOptions: [
-                { value: -1, label: 'Minimal', condition: (ctx) => !ctx.modelInfo.parameters.includes('reasoning_effort_none') && !ctx.modelInfo.parameters.includes('reasoning_effort_min_medium') },
-                { value: -1, label: 'None', condition: (ctx) => ctx.modelInfo.parameters.includes('reasoning_effort_none') },
-                { value: 0, label: 'Low', condition: (ctx) => !ctx.modelInfo.parameters.includes('reasoning_effort_min_medium') },
-                { value: 1, label: 'Medium' },
-                { value: 2, label: 'High' },
-                { value: 3, label: 'XHigh', condition: (ctx) => ctx.modelInfo.parameters.includes('reasoning_effort_xhigh') },
+                { value: -1, labelKey: 'optionMinimal', condition: (ctx) => !ctx.modelInfo.parameters.includes('reasoning_effort_none') && !ctx.modelInfo.parameters.includes('reasoning_effort_min_medium') },
+                { value: -1, labelKey: 'none', condition: (ctx) => ctx.modelInfo.parameters.includes('reasoning_effort_none') },
+                { value: 0, labelKey: 'optionLow', condition: (ctx) => !ctx.modelInfo.parameters.includes('reasoning_effort_min_medium') },
+                { value: 1, labelKey: 'optionMedium' },
+                { value: 2, labelKey: 'optionHigh' },
+                { value: 3, labelKey: 'optionExtraHigh', condition: (ctx) => ctx.modelInfo.parameters.includes('reasoning_effort_xhigh') },
             ]
         },
         keywords: ['reasoning', 'effort', 'xhigh'],
@@ -302,14 +302,14 @@ export const modelSpecificParameterItems: SettingItem[] = [
         options: {
             inputClassName: 'mb-4',
             selectOptions: [
-                { value: '', label: 'Off (do not send)' },
-                { value: 'minimal', label: 'Minimal' },
-                { value: 'none', label: 'None' },
-                { value: 'low', label: 'Low' },
-                { value: 'medium', label: 'Medium' },
-                { value: 'high', label: 'High' },
-                { value: 'xhigh', label: 'XHigh' },
-                { value: 'max', label: 'Max' },
+                { value: '', labelKey: 'optionOffDoNotSend' },
+                { value: 'minimal', labelKey: 'optionMinimal' },
+                { value: 'none', labelKey: 'none' },
+                { value: 'low', labelKey: 'optionLow' },
+                { value: 'medium', labelKey: 'optionMedium' },
+                { value: 'high', labelKey: 'optionHigh' },
+                { value: 'xhigh', labelKey: 'optionExtraHigh' },
+                { value: 'max', labelKey: 'max' },
             ]
         },
         keywords: ['reasoning', 'effort', 'custom', 'max', 'xhigh'],
@@ -322,9 +322,9 @@ export const modelSpecificParameterItems: SettingItem[] = [
         condition: (ctx) => ctx.modelInfo.parameters.includes('verbosity'),
         options: {
             segmentOptions: [
-                { value: 0, label: 'Low' },
-                { value: 1, label: 'Medium' },
-                { value: 2, label: 'High' },
+                { value: 0, labelKey: 'optionLow' },
+                { value: 1, labelKey: 'optionMedium' },
+                { value: 2, labelKey: 'optionHigh' },
             ]
         },
         keywords: ['verbosity', 'length'],

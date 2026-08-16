@@ -100,12 +100,16 @@ function translateRequestContent(request: { formated: { content: string }[] }, p
     const content = request.formated[1].content;
     const matches = Array.from(content.matchAll(/<<<RISU_BATCH_ITEM_\d{4}>>>/g));
     if (matches.length > 0) {
-        return matches.map((match, index) => {
+        const endMarker = "<<<RISU_BATCH_END>>>";
+        const endMarkerIndex = content.indexOf(endMarker);
+        const translated = matches.map((match, index) => {
             const start = (match.index ?? 0) + match[0].length;
-            const end = matches[index + 1]?.index ?? content.length;
+            const end = matches[index + 1]?.index
+                ?? (endMarkerIndex === -1 ? content.length : endMarkerIndex);
             const source = content.slice(start, end).replace(/^\r?\n/, "").replace(/\r?\n$/, "");
             return `${match[0]}\n${prefix}${source}`;
         }).join("\n");
+        return endMarkerIndex === -1 ? translated : `${translated}\n${endMarker}`;
     }
     return `${prefix}${content}`;
 }
@@ -313,6 +317,38 @@ describe("character-card translation", () => {
         await expect(continueCharacterTranslation(session)).resolves.toBe("completed");
         expect(mocks.requestChatData).toHaveBeenCalledTimes(3);
         expect(char.firstMessage).toBe('VI:Hello <pimg src="Miyabi.office.smile">');
+    });
+
+    it("keeps completed items and automatically retries only a truncated batch tail", async () => {
+        const char = makeCharacter();
+        const session = createCharacterTranslationSession(char, makePreset(), "all", {
+            batchSize: 4,
+            requestCharLimit: 1_000_000,
+            concurrency: 1,
+        });
+        const initialBatchTotal = session.batchTotal;
+        mocks.requestChatData
+            .mockImplementationOnce(async (request) => {
+                const complete = translateRequestContent(request);
+                const cutoff = complete.indexOf("<<<RISU_BATCH_ITEM_0002>>>");
+                return {
+                    type: "success",
+                    result: complete.slice(0, cutoff),
+                };
+            })
+            .mockImplementation(async (request) => ({
+                type: "success",
+                result: translateRequestContent(request),
+            }));
+
+        await expect(continueCharacterTranslation(session)).resolves.toBe("completed");
+
+        expect(mocks.requestChatData).toHaveBeenCalledTimes(initialBatchTotal + 1);
+        const retryContent = mocks.requestChatData.mock.calls[1][0].formated[1].content;
+        expect(retryContent.match(/<<<RISU_BATCH_ITEM_\d{4}>>>/g)).toHaveLength(3);
+        expect(retryContent).toContain("<<<RISU_BATCH_END>>>");
+        expect(char.firstMessage).toBe('VI:Hello <pimg src="Miyabi.office.smile">');
+        expect(char.desc).toBe("VI:A strict CEO.");
     });
 
     it("starts configured batches concurrently", async () => {

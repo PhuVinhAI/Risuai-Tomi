@@ -290,7 +290,7 @@
     }
     if(typeof (target) === 'string'){
       const newFolder:folder = {
-        name: "New Folder",
+        name: language.newFolder,
         data: [main, target],
         color: "",
         id: v4()
@@ -628,7 +628,7 @@
                   db.characterOrder[ind] = oder
                 }
                 else if(sel === 2) {
-                  const sel = parseInt(await alertSelect(['Reset to Default Image', 'Select Image File']))
+                  const sel = parseInt(await alertSelect([language.resetDefaultImage, language.selectImageFile]))
                   const db = DBState.db
                   const oder = db.characterOrder[ind]
                   if(typeof(oder) === 'string'){
@@ -929,8 +929,8 @@
   {#if sideBarMode === 0}
     {#if $selectedCharID < 0 || $settingsOpen}
       <div>
-        <h1 class="text-xl">Welcome to RisuAI!</h1>
-        <span class="text-xs text-textcolor2">Select a bot to start chatting</span>
+        <h1 class="text-xl">{language.welcomeToRisuAI}</h1>
+        <span class="text-xs text-textcolor2">{language.selectBotToStart}</span>
       </div>
     {:else if DBState.db.characters[$selectedCharID]?.chaId === '§playground'}
       <SideChatList bind:chara={ DBState.db.characters[$selectedCharID]} />

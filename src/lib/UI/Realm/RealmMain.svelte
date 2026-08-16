@@ -208,7 +208,7 @@
                 const id = input.split("?").at(-1)
                 downloadRisuHub(id)
 
-            })}>Import Character from URL or ID</button>
+            })}>{language.importCharacterFromUrl}</button>
         </div>
     </div>
 {/if}
