@@ -5,7 +5,7 @@
     import { DBState } from 'src/ts/stores.svelte';
     import { onDestroy, untrack } from 'svelte';
     import { CharConfigSubMenu, MobileGUI, ShowRealmFrameStore, selectedCharID, hypaV3ModalOpen } from "../../ts/stores.svelte";
-    import { PlusIcon, SmileIcon, TrashIcon, UserIcon, ActivityIcon, BookIcon, User, Braces, Volume2Icon, DownloadIcon, HardDriveUploadIcon, Share2Icon, ImageIcon, ImageOffIcon, ArrowUp, ArrowDown, LanguagesIcon, MessageSquareTextIcon, BookOpenCheckIcon, LoaderCircleIcon, PauseIcon, PlayIcon, XIcon } from '@lucide/svelte'
+    import { PlusIcon, SmileIcon, TrashIcon, UserIcon, ActivityIcon, BookIcon, User, Braces, Volume2Icon, DownloadIcon, HardDriveUploadIcon, Share2Icon, ImageIcon, ImageOffIcon, ArrowUp, ArrowDown, MessageSquareTextIcon, BookOpenCheckIcon, LoaderCircleIcon, PauseIcon, PlayIcon, XIcon } from '@lucide/svelte'
     import Check from "../UI/GUI/CheckInput.svelte";
     import { addCharEmotion, addingEmotion, getCharImage, rmCharEmotion, selectCharImg, makeGroupImage, removeChar, changeCharImage } from "../../ts/characters";
     import LoreBook from "./LoreBook/LoreBookSetting.svelte";
@@ -49,7 +49,6 @@
     let viewSubMenu = $state(0)
     let emos:[string, string][] = $state([])
     let iconButtonSize = window.innerWidth > 360 ? 24 as const : 20 as const
-    let characterTranslationPresetId = $state(Math.max(DBState.db.botPresetsId, 0))
     let characterTranslationSession: CharacterTranslationSession | null = null
     let characterTranslationScope = $state<CharacterTranslationScope | null>(null)
     let characterTranslationStatus = $state<CharacterTranslationStatus | 'idle'>('idle')
@@ -58,6 +57,8 @@
         current: 0,
         total: 0,
         label: '',
+        batchCurrent: 0,
+        batchTotal: 0,
     })
     let tokens = $state({
         desc: 0,
@@ -238,6 +239,8 @@
                 current: session.current,
                 total: session.total,
                 label: session.label,
+                batchCurrent: session.batchCurrent,
+                batchTotal: session.batchTotal,
             }
         }
     }
@@ -247,7 +250,13 @@
         characterTranslationScope = null
         characterTranslationStatus = 'idle'
         characterTranslationError = ''
-        characterTranslationProgress = { current: 0, total: 0, label: '' }
+        characterTranslationProgress = {
+            current: 0,
+            total: 0,
+            label: '',
+            batchCurrent: 0,
+            batchTotal: 0,
+        }
     }
 
     async function continueCurrentCharacterTranslation() {
@@ -279,7 +288,7 @@
         const char = DBState.db.characters[$selectedCharID]
         if (char.type !== 'character') return
 
-        const preset = DBState.db.botPresets[characterTranslationPresetId]
+        const preset = DBState.db.botPresets[DBState.db.characterTranslationPresetId]
         if (!preset) {
             alertError(language.characterTranslationNoPreset)
             return
@@ -289,7 +298,11 @@
             return
         }
 
-        characterTranslationSession = createCharacterTranslationSession(char, preset, scope)
+        characterTranslationSession = createCharacterTranslationSession(char, preset, scope, {
+            batchSize: DBState.db.characterTranslationBatchSize,
+            requestCharLimit: DBState.db.characterTranslationRequestCharLimit,
+            concurrency: DBState.db.characterTranslationConcurrency,
+        })
         characterTranslationScope = scope
         updateCharacterTranslationState()
         await continueCurrentCharacterTranslation()
@@ -372,42 +385,28 @@
         <span class="text-textcolor">{language.description} <Help key="charDesc"/></span>
         <TextAreaInput highlight margin="both" autocomplete="off" bind:value={(DBState.db.characters[$selectedCharID] as character).desc}></TextAreaInput>
         <span class="text-textcolor2 mb-6 text-sm">{tokens.desc} {language.tokens}</span>
-        <span class="text-textcolor">{language.firstMessage} <Help key="charFirstMessage"/></span>
+        <div class="flex items-center justify-between gap-2">
+            <span class="text-textcolor">{language.firstMessage} <Help key="charFirstMessage"/></span>
+            <Button
+                size="sm"
+                styled="outlined"
+                className="flex shrink-0 items-center justify-center gap-2"
+                disabled={characterTranslationScope !== null || !DBState.db.characters[$selectedCharID].firstMessage.trim()}
+                onclick={() => runCharacterTranslation('greeting')}
+            >
+                {#if characterTranslationScope === 'greeting' && (characterTranslationStatus === 'running' || characterTranslationStatus === 'pausing')}
+                    <LoaderCircleIcon class="animate-spin" size={16} />
+                {:else}
+                    <MessageSquareTextIcon size={16} />
+                {/if}
+                <span>{language.translateGreetingToVietnamese}</span>
+            </Button>
+        </div>
         <TextAreaInput highlight margin="both" autocomplete="off" bind:value={DBState.db.characters[$selectedCharID].firstMessage}></TextAreaInput>
         <span class="text-textcolor2 mb-6 text-sm">{tokens.firstMsg} {language.tokens}</span>
 
         <div class="mb-6 rounded-md border border-darkborderc p-3">
-            <div class="mb-2 flex items-center gap-2 text-textcolor">
-                <LanguagesIcon size={18} />
-                <span>{language.characterTranslation}</span>
-            </div>
-            <label class="mb-1 block text-sm text-textcolor2" for="character-translation-preset">
-                {language.characterTranslationAIPreset}
-            </label>
-            <select
-                id="character-translation-preset"
-                class="w-full rounded-md border border-darkborderc bg-transparent px-3 py-2 text-textcolor shadow-xs transition-colors duration-200 focus:border-borderc focus:outline-hidden focus:ring-2 focus:ring-borderc disabled:cursor-not-allowed disabled:opacity-50"
-                bind:value={characterTranslationPresetId}
-                disabled={characterTranslationScope !== null}
-            >
-                {#each DBState.db.botPresets as preset, i}
-                    <option class="bg-darkbg" value={i}>{preset.name || `Preset ${i + 1}`}</option>
-                {/each}
-            </select>
-            <div class="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
-                <Button
-                    size="sm"
-                    className="flex w-full items-center justify-center gap-2"
-                    disabled={characterTranslationScope !== null || !DBState.db.characters[$selectedCharID].firstMessage.trim()}
-                    onclick={() => runCharacterTranslation('greeting')}
-                >
-                    {#if characterTranslationScope === 'greeting' && (characterTranslationStatus === 'running' || characterTranslationStatus === 'pausing')}
-                        <LoaderCircleIcon class="animate-spin" size={16} />
-                    {:else}
-                        <MessageSquareTextIcon size={16} />
-                    {/if}
-                    <span>{language.translateGreetingToVietnamese}</span>
-                </Button>
+            <div>
                 <Button
                     size="sm"
                     styled="outlined"
@@ -434,7 +433,11 @@
                     {:else}
                         {language.translating}
                     {/if}
-                    {characterTranslationProgress.current}/{characterTranslationProgress.total}
+                    {language.characterTranslationBatchProgress
+                        .replace('{current}', characterTranslationProgress.batchCurrent.toString())
+                        .replace('{total}', characterTranslationProgress.batchTotal.toString())
+                        .replace('{translated}', characterTranslationProgress.current.toString())
+                        .replace('{fields}', characterTranslationProgress.total.toString())}
                 </div>
                 {#if characterTranslationError}
                     <div class="mt-1 break-words text-xs text-draculared">{characterTranslationError}</div>

@@ -163,6 +163,10 @@ export function setDatabase(data:Database){
     if(checkNullish(data.botPresetsId)){
         data.botPresetsId = 0
     }
+    data.characterTranslationPresetId ??= data.botPresetsId
+    data.characterTranslationBatchSize ??= 12
+    data.characterTranslationRequestCharLimit ??= 12000
+    data.characterTranslationConcurrency ??= 2
     if(Array.isArray(data.promptTemplate)){
         data.promptTemplate = normalizePromptTemplate(data.promptTemplate)
     }
@@ -861,6 +865,10 @@ export interface Database{
     waifuWidth2:number
     botPresets:botPreset[]
     botPresetsId:number
+    characterTranslationPresetId:number
+    characterTranslationBatchSize:number
+    characterTranslationRequestCharLimit:number
+    characterTranslationConcurrency:number
     sdProvider: string
     webUiUrl:string
     sdSteps:number

@@ -95,6 +95,27 @@ function makeCharacter(): character {
     };
 }
 
+function translateRequestContent(request: { formated: { content: string }[] }, prefix = "VI:"): string {
+    const content = request.formated[1].content;
+    try {
+        const parsed = JSON.parse(content) as {
+            items?: { id: string; text: string }[];
+        };
+        if (Array.isArray(parsed.items)) {
+            return JSON.stringify({
+                items: parsed.items.map((item) => ({
+                    id: item.id,
+                    text: `${prefix}${item.text}`,
+                })),
+            });
+        }
+    }
+    catch {
+        // Single-item requests deliberately retain the plain-text protocol.
+    }
+    return `${prefix}${content}`;
+}
+
 describe("character-card translation", () => {
     beforeEach(() => {
         mocks.requestChatData.mockReset();
@@ -224,13 +245,20 @@ describe("character-card translation", () => {
         const preset = makePreset();
         mocks.requestChatData.mockImplementation(async (request) => ({
             type: "success",
-            result: `VI:${request.formated[1].content}`,
+            result: translateRequestContent(request),
         }));
 
         const count = await translateCharacterCard(char, preset, "all");
         const sourceTexts = mocks.requestChatData.mock.calls.map(([request]) => request.formated[1].content);
 
         expect(count).toBeGreaterThan(10);
+        expect(mocks.requestChatData.mock.calls.length).toBeLessThan(count);
+        expect(mocks.requestChatData.mock.calls.length).toBe(2);
+        expect(mocks.requestChatData.mock.calls.every(([request]) =>
+            request.useStreaming === false
+            && request.noMultiGen === true
+            && request.presetOverride === preset
+        )).toBe(true);
         expect(char.firstMessage).toBe('VI:Hello <pimg src="Miyabi.office.smile">');
         expect(char.desc).toBe("VI:A strict CEO.");
         expect(char.alternateGreetings).toEqual(["VI:Alternate hello."]);
@@ -255,12 +283,77 @@ describe("character-card translation", () => {
         mocks.requestChatData
             .mockImplementationOnce(async (request) => ({
                 type: "success",
-                result: request.formated[1].content.replace("Hello", "Loi chao"),
+                result: translateRequestContent(request),
             }))
             .mockResolvedValueOnce({ type: "fail", result: "Provider failed" });
 
         await expect(translateCharacterCard(char, preset, "all")).rejects.toThrow("Provider failed");
         expect(char.firstMessage).toBe(originalGreeting);
         expect(char.desc).toBe(originalDescription);
+    });
+
+    it("resumes at the failed batch without repeating completed batches", async () => {
+        const char = makeCharacter();
+        const preset = makePreset();
+        const originalGreeting = char.firstMessage;
+        const session = createCharacterTranslationSession(char, preset, "all");
+        mocks.requestChatData
+            .mockImplementationOnce(async (request) => ({
+                type: "success",
+                result: translateRequestContent(request),
+            }))
+            .mockResolvedValueOnce({ type: "fail", result: "Temporary batch error" })
+            .mockImplementationOnce(async (request) => ({
+                type: "success",
+                result: translateRequestContent(request),
+            }));
+
+        await expect(continueCharacterTranslation(session)).resolves.toBe("error");
+        expect(session.current).toBe(12);
+        expect(session.batchCurrent).toBe(1);
+        expect(session.batchTotal).toBe(2);
+        expect(char.firstMessage).toBe(originalGreeting);
+
+        await expect(continueCharacterTranslation(session)).resolves.toBe("completed");
+        expect(mocks.requestChatData).toHaveBeenCalledTimes(3);
+        expect(char.firstMessage).toBe('VI:Hello <pimg src="Miyabi.office.smile">');
+    });
+
+    it("starts configured batches concurrently", async () => {
+        const char = makeCharacter();
+        const preset = makePreset();
+        const releases: (() => void)[] = [];
+        mocks.requestChatData.mockImplementation((request) => new Promise((resolve) => {
+            releases.push(() => resolve({
+                type: "success",
+                result: translateRequestContent(request),
+            }));
+        }));
+        const session = createCharacterTranslationSession(char, preset, "all", {
+            concurrency: 2,
+        });
+
+        const running = continueCharacterTranslation(session);
+        await Promise.resolve();
+        expect(session.batchTotal).toBe(2);
+        expect(mocks.requestChatData).toHaveBeenCalledTimes(2);
+        releases.forEach((release) => release());
+
+        await expect(running).resolves.toBe("completed");
+    });
+
+    it("does not cap user-provided execution settings", () => {
+        const session = createCharacterTranslationSession(
+            makeCharacter(),
+            makePreset(),
+            "all",
+            {
+                batchSize: 1_000_000,
+                requestCharLimit: 1_000_000_000,
+                concurrency: 1_000_000,
+            },
+        );
+
+        expect(session.batchTotal).toBe(1);
     });
 });

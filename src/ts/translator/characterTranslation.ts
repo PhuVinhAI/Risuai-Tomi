@@ -14,6 +14,7 @@ Do not translate code, JSON, CSS, JavaScript, regular expressions, lore activati
 interface ProtectedTranslationText {
     masked: string;
     protectedFragments: string[];
+    protectedTokens: string[];
     structuralSymbols: string[];
 }
 
@@ -38,7 +39,7 @@ function collectProtectedRanges(text: string, regex: RegExp): ProtectedRange[] {
     return ranges;
 }
 
-function protectSourceSyntax(text: string): ProtectedTranslationText {
+function protectSourceSyntax(text: string, namespace = ""): ProtectedTranslationText {
     const candidates = [
         ...collectProtectedRanges(text, /```[\s\S]*?```/g),
         ...collectProtectedRanges(text, /<\/?[A-Za-z][^<>]*>/g),
@@ -60,15 +61,19 @@ function protectSourceSyntax(text: string): ProtectedTranslationText {
     }
 
     const protectedFragments: string[] = [];
+    const protectedTokens: string[] = [];
     let masked = "";
     let unprotected = "";
     let cursor = 0;
     for (const range of selected) {
         const visible = text.slice(cursor, range.start);
-        const token = `⟪RISU_LOCK_${protectedFragments.length.toString().padStart(4, "0")}⟫`;
+        const token = namespace
+            ? `⟪RISU_LOCK_${namespace}_${protectedFragments.length.toString().padStart(4, "0")}⟫`
+            : `⟪RISU_LOCK_${protectedFragments.length.toString().padStart(4, "0")}⟫`;
         masked += visible + token;
         unprotected += visible + " ";
         protectedFragments.push(range.value);
+        protectedTokens.push(token);
         cursor = range.end;
     }
     masked += text.slice(cursor);
@@ -80,7 +85,7 @@ function protectSourceSyntax(text: string): ProtectedTranslationText {
         ),
     )).slice(0, 48);
 
-    return { masked, protectedFragments, structuralSymbols };
+    return { masked, protectedFragments, protectedTokens, structuralSymbols };
 }
 
 function buildTranslationSystemPrompt(protectedText: ProtectedTranslationText): string {
@@ -101,10 +106,10 @@ function buildTranslationSystemPrompt(protectedText: ProtectedTranslationText): 
         : characterCardTranslationSystemPrompt;
 }
 
-function restoreProtectedSyntax(result: string, protectedFragments: string[]): string {
+function restoreProtectedSyntax(result: string, protectedText: ProtectedTranslationText): string {
     let restored = result;
-    protectedFragments.forEach((fragment, index) => {
-        const token = `⟪RISU_LOCK_${index.toString().padStart(4, "0")}⟫`;
+    protectedText.protectedFragments.forEach((fragment, index) => {
+        const token = protectedText.protectedTokens[index];
         const occurrences = restored.split(token).length - 1;
         if (occurrences !== 1) {
             throw new Error(`Translation changed protected syntax token ${index + 1}.`);
@@ -116,10 +121,24 @@ function restoreProtectedSyntax(result: string, protectedFragments: string[]): s
 
 export type CharacterTranslationScope = "greeting" | "all";
 
+export interface CharacterTranslationExecutionOptions {
+    batchSize: number;
+    requestCharLimit: number;
+    concurrency: number;
+}
+
+const defaultCharacterTranslationExecutionOptions: CharacterTranslationExecutionOptions = {
+    batchSize: 12,
+    requestCharLimit: 12000,
+    concurrency: 2,
+};
+
 export interface CharacterTranslationProgress {
     current: number;
     total: number;
     label: string;
+    batchCurrent: number;
+    batchTotal: number;
 }
 
 export type CharacterTranslationStatus =
@@ -138,6 +157,8 @@ export interface CharacterTranslationSession {
     total: number;
     label: string;
     error: string;
+    batchCurrent: number;
+    batchTotal: number;
 }
 
 interface TranslationSlot {
@@ -149,10 +170,18 @@ interface TranslationSlot {
 interface CharacterTranslationSessionState {
     preset: CharacterTranslationPreset;
     slots: TranslationSlot[];
-    translated: string[];
-    controller: AbortController | null;
+    batches: TranslationBatch[];
+    translated: (string | undefined)[];
+    completedBatches: Set<number>;
+    controllers: Map<number, AbortController>;
+    concurrency: number;
     stopReason: "none" | "pause" | "cancel";
     running: Promise<CharacterTranslationStatus> | null;
+}
+
+interface TranslationBatch {
+    start: number;
+    end: number;
 }
 
 const characterTranslationSessionStates = new WeakMap<
@@ -313,13 +342,175 @@ export async function translateCharacterText(
 
     const translated = restoreProtectedSyntax(
         stripReasoning(response.result),
-        protectedText.protectedFragments,
+        protectedText,
     );
     if (!translated) {
         throw new Error("Translation returned an empty response.");
     }
 
     return translated;
+}
+
+function stripJsonFence(result: string): string {
+    const trimmed = stripReasoning(result).trim();
+    const fenced = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+    return fenced?.[1]?.trim() ?? trimmed;
+}
+
+function parseTranslationBatchResponse(
+    result: string,
+    protectedTexts: ProtectedTranslationText[],
+): string[] {
+    const cleaned = stripJsonFence(result);
+    let parsed: unknown;
+    try {
+        parsed = JSON.parse(cleaned);
+    }
+    catch {
+        const objectStart = cleaned.indexOf("{");
+        const objectEnd = cleaned.lastIndexOf("}");
+        if (objectStart === -1 || objectEnd <= objectStart) {
+            throw new Error("Translation batch did not return valid JSON.");
+        }
+        try {
+            parsed = JSON.parse(cleaned.slice(objectStart, objectEnd + 1));
+        }
+        catch {
+            throw new Error("Translation batch did not return valid JSON.");
+        }
+    }
+
+    const items = (parsed as { items?: unknown })?.items;
+    if (!Array.isArray(items) || items.length !== protectedTexts.length) {
+        throw new Error("Translation batch returned the wrong number of items.");
+    }
+
+    return protectedTexts.map((protectedText, index) => {
+        const expectedId = `item_${index}`;
+        const item = items.find((candidate) =>
+            typeof candidate === "object"
+            && candidate !== null
+            && (candidate as { id?: unknown }).id === expectedId
+        ) as { text?: unknown } | undefined;
+        if (typeof item?.text !== "string" || !item.text.trim()) {
+            throw new Error(`Translation batch is missing ${expectedId}.`);
+        }
+        return restoreProtectedSyntax(item.text, protectedText);
+    });
+}
+
+async function translateCharacterTextBatch(
+    texts: string[],
+    preset: CharacterTranslationPreset,
+    abortSignal?: AbortSignal,
+): Promise<string[]> {
+    if (texts.length === 0) return [];
+    if (texts.length === 1) {
+        return [await translateCharacterText(texts[0], preset, abortSignal)];
+    }
+
+    const protectedTexts = texts.map((text, index) =>
+        protectSourceSyntax(text, index.toString().padStart(3, "0"))
+    );
+    const combinedProfile: ProtectedTranslationText = {
+        masked: "",
+        protectedFragments: protectedTexts.flatMap((item) => item.protectedFragments),
+        protectedTokens: protectedTexts.flatMap((item) => item.protectedTokens),
+        structuralSymbols: Array.from(new Set(
+            protectedTexts.flatMap((item) => item.structuralSymbols),
+        )).slice(0, 48),
+    };
+    const batchInstruction = `The user message is a JSON transport envelope with an \"items\" array.
+Translate only each item's \"text\" value. Return only valid JSON in exactly the same shape and with every \"id\" unchanged.
+The JSON envelope is transport syntax, not source content. Do not add, remove, merge, split, or reorder items.`;
+    const response = await requestChatData(
+        {
+            formated: [
+                {
+                    role: "system",
+                    content: `${buildTranslationSystemPrompt(combinedProfile)}\n\nBatch protocol:\n${batchInstruction}`,
+                },
+                {
+                    role: "user",
+                    content: JSON.stringify({
+                        items: protectedTexts.map((item, index) => ({
+                            id: `item_${index}`,
+                            text: item.masked,
+                        })),
+                    }),
+                },
+            ],
+            bias: {},
+            biasString: preset.bias ?? [],
+            useStreaming: false,
+            noMultiGen: true,
+            skipRequestTrigger: true,
+            presetOverride: preset,
+        },
+        "translate",
+        abortSignal,
+    );
+
+    if (response.type === "fail") {
+        throw new Error(response.result || "Translation request failed.");
+    }
+    if (response.type !== "success") {
+        throw new Error("Translation returned an unexpected response type.");
+    }
+
+    return parseTranslationBatchResponse(response.result, protectedTexts);
+}
+
+function normalizePositiveInteger(value: unknown, fallback: number): number {
+    const numeric = Number(value);
+    return Number.isFinite(numeric) && numeric >= 1
+        ? Math.floor(numeric)
+        : fallback;
+}
+
+function resolveExecutionOptions(
+    options: Partial<CharacterTranslationExecutionOptions>,
+): CharacterTranslationExecutionOptions {
+    return {
+        batchSize: normalizePositiveInteger(
+            options.batchSize,
+            defaultCharacterTranslationExecutionOptions.batchSize,
+        ),
+        requestCharLimit: normalizePositiveInteger(
+            options.requestCharLimit,
+            defaultCharacterTranslationExecutionOptions.requestCharLimit,
+        ),
+        concurrency: normalizePositiveInteger(
+            options.concurrency,
+            defaultCharacterTranslationExecutionOptions.concurrency,
+        ),
+    };
+}
+
+function createTranslationBatches(
+    slots: TranslationSlot[],
+    options: CharacterTranslationExecutionOptions,
+): TranslationBatch[] {
+    const batches: TranslationBatch[] = [];
+
+    let start = 0;
+    let characters = 0;
+    for (let index = 0; index < slots.length; index += 1) {
+        const nextCharacters = slots[index].value.length;
+        const itemCount = index - start;
+        if (itemCount > 0 && (
+            itemCount >= options.batchSize
+            || characters + nextCharacters > options.requestCharLimit
+        )) {
+            batches.push({ start, end: index });
+            start = index;
+            characters = 0;
+        }
+        characters += nextCharacters;
+    }
+    if (start < slots.length) batches.push({ start, end: slots.length });
+
+    return batches;
 }
 
 function getSessionState(session: CharacterTranslationSession): CharacterTranslationSessionState {
@@ -336,6 +527,8 @@ function emitSessionProgress(
         current: session.current,
         total: session.total,
         label: session.label,
+        batchCurrent: session.batchCurrent,
+        batchTotal: session.batchTotal,
     });
 }
 
@@ -361,8 +554,11 @@ export function createCharacterTranslationSession(
     char: character,
     preset: CharacterTranslationPreset,
     scope: CharacterTranslationScope,
+    executionOptions: Partial<CharacterTranslationExecutionOptions> = {},
 ): CharacterTranslationSession {
     const slots = collectCharacterTranslationSlots(char, scope);
+    const resolvedOptions = resolveExecutionOptions(executionOptions);
+    const batches = createTranslationBatches(slots, resolvedOptions);
     const session: CharacterTranslationSession = {
         status: "ready",
         scope,
@@ -370,13 +566,18 @@ export function createCharacterTranslationSession(
         total: slots.length,
         label: slots[0]?.label ?? "",
         error: "",
+        batchCurrent: 0,
+        batchTotal: batches.length,
     };
 
     characterTranslationSessionStates.set(session, {
         preset,
         slots,
-        translated: [],
-        controller: null,
+        batches,
+        translated: new Array(slots.length),
+        completedBatches: new Set(),
+        controllers: new Map(),
+        concurrency: resolvedOptions.concurrency,
         stopReason: "none",
         running: null,
     });
@@ -390,7 +591,7 @@ export function pauseCharacterTranslation(session: CharacterTranslationSession):
 
     state.stopReason = "pause";
     session.status = "pausing";
-    state.controller?.abort();
+    state.controllers.forEach((controller) => controller.abort());
 }
 
 export function cancelCharacterTranslation(session: CharacterTranslationSession): void {
@@ -398,11 +599,14 @@ export function cancelCharacterTranslation(session: CharacterTranslationSession)
     if (session.status === "completed" || session.status === "cancelled") return;
 
     state.stopReason = "cancel";
-    state.translated = [];
+    state.translated = new Array(state.slots.length);
+    state.completedBatches.clear();
+    session.current = 0;
+    session.batchCurrent = 0;
     session.status = "cancelled";
     session.error = "";
     session.label = "";
-    state.controller?.abort();
+    state.controllers.forEach((controller) => controller.abort());
 }
 
 export async function continueCharacterTranslation(
@@ -421,41 +625,83 @@ export async function continueCharacterTranslation(
         session.error = "";
         emitSessionProgress(session, onProgress);
 
-        while (session.current < state.slots.length) {
-            const slot = state.slots[session.current];
-            session.label = slot.label;
-            state.controller = new AbortController();
+        while (state.completedBatches.size < state.batches.length) {
+            const pendingBatchIndexes = state.batches
+                .map((_, index) => index)
+                .filter((index) => !state.completedBatches.has(index));
+            const wave = pendingBatchIndexes.slice(0, state.concurrency);
+            const firstBatch = state.batches[wave[0]];
+            const firstBatchSlots = firstBatch
+                ? state.slots.slice(firstBatch.start, firstBatch.end)
+                : [];
+            session.label = firstBatchSlots.length > 1
+                ? `${firstBatchSlots[0].label} +${firstBatchSlots.length - 1}`
+                : firstBatchSlots[0]?.label ?? "";
             emitSessionProgress(session, onProgress);
 
-            try {
-                const result = await translateCharacterText(
-                    slot.value,
-                    state.preset,
-                    state.controller.signal,
-                );
+            const outcomes = await Promise.all(wave.map(async (batchIndex) => {
+                const batch = state.batches[batchIndex];
+                const batchSlots = state.slots.slice(batch.start, batch.end);
+                const controller = new AbortController();
+                state.controllers.set(batchIndex, controller);
 
-                const stopped = settleRequestedStop(session, state, onProgress);
-                if (stopped) return stopped;
-                state.translated.push(result);
-                session.current += 1;
-            }
-            catch (error) {
-                const stopped = settleRequestedStop(session, state, onProgress);
-                if (stopped) return stopped;
+                try {
+                    const results = await translateCharacterTextBatch(
+                        batchSlots.map((slot) => slot.value),
+                        state.preset,
+                        controller.signal,
+                    );
+                    if (state.stopReason !== "none") {
+                        return { batchIndex, error: null };
+                    }
 
+                    results.forEach((result, offset) => {
+                        state.translated[batch.start + offset] = result;
+                    });
+                    state.completedBatches.add(batchIndex);
+                    session.current = Array.from(state.completedBatches).reduce(
+                        (total, completedIndex) => {
+                            const completed = state.batches[completedIndex];
+                            return total + completed.end - completed.start;
+                        },
+                        0,
+                    );
+                    session.batchCurrent = state.completedBatches.size;
+                    emitSessionProgress(session, onProgress);
+                    return { batchIndex, error: null };
+                }
+                catch (error) {
+                    return { batchIndex, error };
+                }
+                finally {
+                    state.controllers.delete(batchIndex);
+                }
+            }));
+
+            const stopped = settleRequestedStop(session, state, onProgress);
+            if (stopped) return stopped;
+
+            const failed = outcomes.find((outcome) => outcome.error !== null);
+            if (failed) {
                 session.status = "error";
-                session.error = error instanceof Error ? error.message : `${error}`;
+                session.error = failed.error instanceof Error
+                    ? failed.error.message
+                    : `${failed.error}`;
                 emitSessionProgress(session, onProgress);
                 return session.status;
             }
-            finally {
-                state.controller = null;
-            }
         }
 
-        state.slots.forEach((slot, index) => slot.apply(state.translated[index]));
+        state.slots.forEach((slot, index) => {
+            const translated = state.translated[index];
+            if (translated === undefined) {
+                throw new Error(`Translation result ${index + 1} is missing.`);
+            }
+            slot.apply(translated);
+        });
         session.status = "completed";
         session.label = "";
+        session.batchCurrent = session.batchTotal;
         emitSessionProgress(session, onProgress);
         return session.status;
     };
@@ -474,8 +720,9 @@ export async function translateCharacterCard(
     preset: CharacterTranslationPreset,
     scope: CharacterTranslationScope,
     onProgress?: (progress: CharacterTranslationProgress) => void,
+    executionOptions: Partial<CharacterTranslationExecutionOptions> = {},
 ): Promise<number> {
-    const session = createCharacterTranslationSession(char, preset, scope);
+    const session = createCharacterTranslationSession(char, preset, scope, executionOptions);
     const status = await continueCharacterTranslation(session, onProgress);
 
     if (status === "error") throw new Error(session.error);
