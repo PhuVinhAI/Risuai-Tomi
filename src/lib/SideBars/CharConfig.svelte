@@ -3,13 +3,13 @@
     import { tokenizeAccurate } from "../../ts/tokenizer";
     import { getCurrentCharacter, saveImage as saveAsset, type character, type groupChat } from "../../ts/storage/database.svelte";
     import { DBState } from 'src/ts/stores.svelte';
-    import { untrack } from 'svelte';
+    import { onDestroy, untrack } from 'svelte';
     import { CharConfigSubMenu, MobileGUI, ShowRealmFrameStore, selectedCharID, hypaV3ModalOpen } from "../../ts/stores.svelte";
-    import { PlusIcon, SmileIcon, TrashIcon, UserIcon, ActivityIcon, BookIcon, User, Braces, Volume2Icon, DownloadIcon, HardDriveUploadIcon, Share2Icon, ImageIcon, ImageOffIcon, ArrowUp, ArrowDown } from '@lucide/svelte'
+    import { PlusIcon, SmileIcon, TrashIcon, UserIcon, ActivityIcon, BookIcon, User, Braces, Volume2Icon, DownloadIcon, HardDriveUploadIcon, Share2Icon, ImageIcon, ImageOffIcon, ArrowUp, ArrowDown, LanguagesIcon, MessageSquareTextIcon, BookOpenCheckIcon, LoaderCircleIcon, PauseIcon, PlayIcon, XIcon } from '@lucide/svelte'
     import Check from "../UI/GUI/CheckInput.svelte";
     import { addCharEmotion, addingEmotion, getCharImage, rmCharEmotion, selectCharImg, makeGroupImage, removeChar, changeCharImage } from "../../ts/characters";
     import LoreBook from "./LoreBook/LoreBookSetting.svelte";
-    import { alertNormal, alertTOS, showHypaV2Alert } from "../../ts/alert";
+    import { alertConfirm, alertError, alertNormal, alertTOS, showHypaV2Alert } from "../../ts/alert";
     import BarIcon from "./BarIcon.svelte";
     import { findCharacterbyId, getAuthorNoteDefaultText, selectMultipleFile, selectSingleFile } from "../../ts/util";
     import Help from "../Others/Help.svelte";
@@ -34,11 +34,31 @@
     import SliderInput from "../UI/GUI/SliderInput.svelte";
     import Toggles from "./Toggles.svelte";
     import { convertCharacterToModule } from "src/ts/interchangeability";
+    import {
+        cancelCharacterTranslation,
+        continueCharacterTranslation,
+        createCharacterTranslationSession,
+        pauseCharacterTranslation,
+        type CharacterTranslationProgress,
+        type CharacterTranslationScope,
+        type CharacterTranslationSession,
+        type CharacterTranslationStatus,
+    } from "src/ts/translator/characterTranslation";
 
     let iconRemoveMode = $state(false)
     let viewSubMenu = $state(0)
     let emos:[string, string][] = $state([])
     let iconButtonSize = window.innerWidth > 360 ? 24 as const : 20 as const
+    let characterTranslationPresetId = $state(Math.max(DBState.db.botPresetsId, 0))
+    let characterTranslationSession: CharacterTranslationSession | null = null
+    let characterTranslationScope = $state<CharacterTranslationScope | null>(null)
+    let characterTranslationStatus = $state<CharacterTranslationStatus | 'idle'>('idle')
+    let characterTranslationError = $state('')
+    let characterTranslationProgress = $state<CharacterTranslationProgress>({
+        current: 0,
+        total: 0,
+        label: '',
+    })
     let tokens = $state({
         desc: 0,
         firstMsg: 0,
@@ -208,6 +228,89 @@
         }
     }
 
+    function updateCharacterTranslationState(progress?: CharacterTranslationProgress) {
+        const session = characterTranslationSession
+        characterTranslationStatus = session?.status ?? 'idle'
+        characterTranslationError = session?.error ?? ''
+        if (progress) characterTranslationProgress = progress
+        else if (session) {
+            characterTranslationProgress = {
+                current: session.current,
+                total: session.total,
+                label: session.label,
+            }
+        }
+    }
+
+    function clearCharacterTranslationSession() {
+        characterTranslationSession = null
+        characterTranslationScope = null
+        characterTranslationStatus = 'idle'
+        characterTranslationError = ''
+        characterTranslationProgress = { current: 0, total: 0, label: '' }
+    }
+
+    async function continueCurrentCharacterTranslation() {
+        const session = characterTranslationSession
+        if (!session) return
+
+        updateCharacterTranslationState()
+        const status = await continueCharacterTranslation(session, (progress) => {
+            if (characterTranslationSession !== session) return
+            updateCharacterTranslationState(progress)
+        })
+        if (characterTranslationSession !== session) return
+
+        updateCharacterTranslationState()
+        if (status === 'completed') {
+            const translatedCount = session.total
+            clearCharacterTranslationSession()
+            if (translatedCount === 0) alertNormal(language.characterTranslationNothing)
+            else alertNormal(language.characterTranslationComplete.replace('{count}', translatedCount.toString()))
+        }
+        else if (status === 'error') {
+            alertError(session.error)
+        }
+    }
+
+    async function runCharacterTranslation(scope: CharacterTranslationScope) {
+        if (characterTranslationScope) return
+
+        const char = DBState.db.characters[$selectedCharID]
+        if (char.type !== 'character') return
+
+        const preset = DBState.db.botPresets[characterTranslationPresetId]
+        if (!preset) {
+            alertError(language.characterTranslationNoPreset)
+            return
+        }
+
+        if (scope === 'all' && !(await alertConfirm(language.characterTranslationAllConfirm))) {
+            return
+        }
+
+        characterTranslationSession = createCharacterTranslationSession(char, preset, scope)
+        characterTranslationScope = scope
+        updateCharacterTranslationState()
+        await continueCurrentCharacterTranslation()
+    }
+
+    function pauseCurrentCharacterTranslation() {
+        if (!characterTranslationSession) return
+        pauseCharacterTranslation(characterTranslationSession)
+        updateCharacterTranslationState()
+    }
+
+    function cancelCurrentCharacterTranslation() {
+        if (!characterTranslationSession) return
+        cancelCharacterTranslation(characterTranslationSession)
+        clearCharacterTranslationSession()
+    }
+
+    onDestroy(() => {
+        if (characterTranslationSession) cancelCharacterTranslation(characterTranslationSession)
+    })
+
     function moveAlternateGreetingUp(index: number) {
         if(index === 0) return
         if(DBState.db.characters[$selectedCharID].type === 'character'){
@@ -272,6 +375,104 @@
         <span class="text-textcolor">{language.firstMessage} <Help key="charFirstMessage"/></span>
         <TextAreaInput highlight margin="both" autocomplete="off" bind:value={DBState.db.characters[$selectedCharID].firstMessage}></TextAreaInput>
         <span class="text-textcolor2 mb-6 text-sm">{tokens.firstMsg} {language.tokens}</span>
+
+        <div class="mb-6 rounded-md border border-darkborderc p-3">
+            <div class="mb-2 flex items-center gap-2 text-textcolor">
+                <LanguagesIcon size={18} />
+                <span>{language.characterTranslation}</span>
+            </div>
+            <label class="mb-1 block text-sm text-textcolor2" for="character-translation-preset">
+                {language.characterTranslationAIPreset}
+            </label>
+            <select
+                id="character-translation-preset"
+                class="w-full rounded-md border border-darkborderc bg-transparent px-3 py-2 text-textcolor shadow-xs transition-colors duration-200 focus:border-borderc focus:outline-hidden focus:ring-2 focus:ring-borderc disabled:cursor-not-allowed disabled:opacity-50"
+                bind:value={characterTranslationPresetId}
+                disabled={characterTranslationScope !== null}
+            >
+                {#each DBState.db.botPresets as preset, i}
+                    <option class="bg-darkbg" value={i}>{preset.name || `Preset ${i + 1}`}</option>
+                {/each}
+            </select>
+            <div class="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                <Button
+                    size="sm"
+                    className="flex w-full items-center justify-center gap-2"
+                    disabled={characterTranslationScope !== null || !DBState.db.characters[$selectedCharID].firstMessage.trim()}
+                    onclick={() => runCharacterTranslation('greeting')}
+                >
+                    {#if characterTranslationScope === 'greeting' && (characterTranslationStatus === 'running' || characterTranslationStatus === 'pausing')}
+                        <LoaderCircleIcon class="animate-spin" size={16} />
+                    {:else}
+                        <MessageSquareTextIcon size={16} />
+                    {/if}
+                    <span>{language.translateGreetingToVietnamese}</span>
+                </Button>
+                <Button
+                    size="sm"
+                    styled="outlined"
+                    className="flex w-full items-center justify-center gap-2"
+                    disabled={characterTranslationScope !== null}
+                    onclick={() => runCharacterTranslation('all')}
+                >
+                    {#if characterTranslationScope === 'all' && (characterTranslationStatus === 'running' || characterTranslationStatus === 'pausing')}
+                        <LoaderCircleIcon class="animate-spin" size={16} />
+                    {:else}
+                        <BookOpenCheckIcon size={16} />
+                    {/if}
+                    <span>{language.translateCharacterToVietnamese}</span>
+                </Button>
+            </div>
+            {#if characterTranslationScope}
+                <div class="mt-2 text-xs text-textcolor2" aria-live="polite">
+                    {#if characterTranslationStatus === 'paused'}
+                        {language.characterTranslationPaused}
+                    {:else if characterTranslationStatus === 'error'}
+                        {language.characterTranslationFailed}
+                    {:else if characterTranslationStatus === 'pausing'}
+                        {language.characterTranslationPausing}
+                    {:else}
+                        {language.translating}
+                    {/if}
+                    {characterTranslationProgress.current}/{characterTranslationProgress.total}
+                </div>
+                {#if characterTranslationError}
+                    <div class="mt-1 break-words text-xs text-draculared">{characterTranslationError}</div>
+                {/if}
+                <div class="mt-2 grid grid-cols-2 gap-2">
+                    {#if characterTranslationStatus === 'paused' || characterTranslationStatus === 'error'}
+                        <Button
+                            size="sm"
+                            className="flex w-full items-center justify-center gap-2"
+                            onclick={continueCurrentCharacterTranslation}
+                        >
+                            <PlayIcon size={16} />
+                            <span>{language.characterTranslationResume}</span>
+                        </Button>
+                    {:else}
+                        <Button
+                            size="sm"
+                            styled="outlined"
+                            className="flex w-full items-center justify-center gap-2"
+                            disabled={characterTranslationStatus === 'pausing'}
+                            onclick={pauseCurrentCharacterTranslation}
+                        >
+                            <PauseIcon size={16} />
+                            <span>{language.characterTranslationPause}</span>
+                        </Button>
+                    {/if}
+                    <Button
+                        size="sm"
+                        styled="danger"
+                        className="flex w-full items-center justify-center gap-2"
+                        onclick={cancelCurrentCharacterTranslation}
+                    >
+                        <XIcon size={16} />
+                        <span>{language.cancel}</span>
+                    </Button>
+                </div>
+            {/if}
+        </div>
 
     {:else if licensed !== 'private' && DBState.db.characters[$selectedCharID].type === 'group'}
         <TextInput size="xl" marginBottom placeholder="Group Name" bind:value={DBState.db.characters[$selectedCharID].name} />

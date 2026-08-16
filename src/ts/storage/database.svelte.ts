@@ -2197,7 +2197,23 @@ export function resolvePresetAsDatabase(preset: botPreset): Database {
     // The preset is cloned because setPreset assigns a few nested objects by reference
     // and then fills defaults into them; without this, resolving a preset would write
     // into the stored preset.
-    return setPreset({ ...DBState.db } as Database, safeStructuredClone(preset))
+    // UI locks which stop normal preset switching from replacing auxiliary models,
+    // fallbacks, or separate parameters must not strip those values from a scoped
+    // request: the selected preset is the complete request configuration here.
+    const detached = {
+        ...DBState.db,
+        doNotChangeSeperateModels: false,
+        doNotChangeFallbackModels: false,
+        disableSeperateParameterChangeOnPresetChange: false,
+    } as Database
+    const resolved = setPreset(detached, safeStructuredClone(preset))
+
+    // `setPreset` intentionally keeps the globally active OpenAI key during normal UI
+    // preset switches. A detached request can safely use the key stored in its selected
+    // preset without mutating the active database. Empty imported keys still fall back
+    // to the active key, matching normal preset behavior.
+    resolved.openAIKey = preset.openAIKey || resolved.openAIKey
+    return resolved
 }
 
 export function setPreset(db:Database, newPres: botPreset){    db.apiType = newPres.apiType ?? db.apiType
