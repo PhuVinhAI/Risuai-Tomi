@@ -99,7 +99,7 @@ bình, “cải thiện”, hoặc thêm gu riêng từ card, history khác, th�
   bắt chước punctuation của ghi chú. Đây không phải validation cấm ký hiệu: packet lỡ còn bullet,
   ngoặc, tag hay markup vẫn pass. Tuy nhiên Director không được biến chúng thành style/direction,
   còn Writer được nhắc rằng mọi punctuation và syntax trong packet chỉ là context; format output chỉ
-  đến từ preset Writer hoặc system protocol nằm sau packet.
+  đến từ output-protocol context của preset active đã được giữ nguyên.
 - Nhãn và toàn bộ lời mô tả/chỉ dẫn trong packet viết tiếng Anh. Nội dung trích dẫn **giữ nguyên
   ngôn ngữ gốc**, không dịch. Packet bị localize sẽ fail validation và Director phải retry.
 - Tên riêng, câu trích nguyên văn, vị trí, ai đang biết chuyện gì — ghi y nguyên, cấm diễn giải.
@@ -121,13 +121,11 @@ Packet thay history bằng continuity hiện tại và hướng kịch bản:
 system: <prompt vai Writer>
 ...:    <character + persona + lore/world + memory + author note + preset/output protocols>
 system: <packet>
-system: <output protocol + danh sách asset key chính xác, nếu có>
 user:   <nguyên văn tin nhắn user>
 ```
 
-Danh sách asset key ở system message sau packet luôn là allowlist authoritative, kể cả Writer preset
-có `customimageinstruction`. Custom instruction vẫn quyết định cú pháp tag, số lượng và vị trí ảnh
-nhưng không được thêm, dịch, rút gọn hoặc thay key; Director cũng không được tắt protocol này trong packet.
+Image syntax, asset key, số lượng và vị trí ảnh chỉ đến từ prompt/config đã render của preset active.
+Pipeline không tự phát hiện, viết lại hoặc chèn thêm một image protocol thứ hai sau packet.
 
 Auto-strip khi preset có tick Writer — app tự bỏ, user không phải dựng template trống:
 

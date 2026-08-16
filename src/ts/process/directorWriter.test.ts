@@ -36,7 +36,6 @@ vi.mock('../polyfill', () => ({
 
 import {
     buildDirectorFormated,
-    buildWriterAssetInstruction,
     buildWriterFormated,
     defaultPacketSchema,
     ensureWritingStyleSchema,
@@ -587,98 +586,20 @@ Vietnamese`
         )
     })
 
-    it('gives the Writer exact asset keys after the packet', () => {
-        const writer = { promptTemplate: [] }
-        const currentChar = {
-            prebuiltAssetCommand: true,
-            prebuiltAssetExclude: ['excluded-path'],
-            additionalAssets: [
-                ['Miyabi_home_smile', 'included-path', 'png'],
-                ['Miyabi excluded', 'excluded-path', 'png'],
-            ],
-        }
-
-        const instruction = buildWriterAssetInstruction(writer as any, currentChar as any)
-        expect(instruction).toContain('["Miyabi_home_smile"]')
-        expect(instruction).not.toContain('Miyabi excluded')
-        expect(instruction).toContain('Never invent, translate, normalize, shorten, or paraphrase a key')
-        expect(instruction).toContain('<img src="EXACT_KEY_FROM_LIST">')
-
-        const formated = buildWriterFormated({
-            writer: writer as any,
-            packet: '[FORBIDDEN]\nDo not include image tags.',
-            userMessage: { role: 'user', content: 'Continue' },
-            currentChar: currentChar as any,
-        })
-        const packetIndex = formated.findIndex((item) => item.content.startsWith('[FORBIDDEN]'))
-        const protocolIndex = formated.findIndex((item) => item.content.startsWith('Authoritative image'))
-        const userIndex = formated.findIndex((item) => item.role === 'user')
-
-        expect(packetIndex).toBeGreaterThan(-1)
-        expect(protocolIndex).toBeGreaterThan(packetIndex)
-        expect(userIndex).toBeGreaterThan(protocolIndex)
-    })
-
-    it('keeps custom image placement rules but still supplies the exact key allowlist', () => {
-        const writer = {
-            promptTemplate: [{
-                type: 'plain',
-                text: '{{//@customimageinstruction}}Use my custom protocol',
-            }],
-        }
-        const currentChar = {
-            prebuiltAssetCommand: true,
-            additionalAssets: [['Exact key', 'path', 'png']],
-        }
-
-        const instruction = buildWriterAssetInstruction(writer as any, currentChar as any)
-        expect(instruction).toContain('Follow the Writer preset\'s custom image instruction for tag syntax/format')
-        expect(instruction).toContain('["Exact key"]')
-        expect(instruction).not.toContain('Use at least one image')
-        expect(instruction).not.toContain('<img src="EXACT_KEY_FROM_LIST">')
-    })
-
-    it('preserves an explicit pimg protocol even when the custom marker is absent', () => {
-        const writer = {
-            promptTemplate: [{
-                type: 'plain',
-                type2: 'normal',
-                role: 'system',
-                text: 'Place images between paragraphs as <pimg src="Exact key">.',
-            }],
-        }
-        const currentChar = {
-            prebuiltAssetCommand: true,
-            additionalAssets: [['Akatsuki Miyabi.office.happy smile', 'path', 'png']],
-        }
-
-        const instruction = buildWriterAssetInstruction(writer as any, currentChar as any)
-
-        expect(instruction).toContain('<pimg src="EXACT_KEY_FROM_LIST">')
-        expect(instruction).toContain('Never replace <pimg> with <img>')
-        expect(instruction).toContain('["Akatsuki Miyabi.office.happy smile"]')
-        expect(instruction).not.toContain('- Format every image as: <img src=')
-    })
-
-    it('detects pimg from the retained active context and reinforces it after the packet', () => {
-        const currentChar = {
-            prebuiltAssetCommand: true,
-            additionalAssets: [['Akatsuki Miyabi.office.lovestruck', 'path', 'png']],
-        }
+    it('keeps the active image protocol without appending a synthesized override', () => {
         const formated = buildWriterFormated({
             base: [{
                 role: 'system',
-                content: 'Timestamp protocol. Place character images as <pimg src="EXACT_ASSET_KEY">.',
+                content: 'Use <pimg src="Akatsuki Miyabi.office.lovestruck"> between paragraphs.',
             }],
             writer: { promptTemplate: [] } as any,
             packet: '[DIRECTION]\nContinue the scene.',
             userMessage: { role: 'user', content: 'Mẹ ơi?' },
-            currentChar: currentChar as any,
         })
-        const protocol = formated.find((message) => message.content.startsWith('Authoritative image'))?.content
 
-        expect(protocol).toContain('<pimg src="EXACT_KEY_FROM_LIST">')
-        expect(protocol).toContain('["Akatsuki Miyabi.office.lovestruck"]')
-        expect(protocol).toContain('Never replace <pimg> with <img>')
+        expect(formated.some((message) => message.content.includes('<pimg src="Akatsuki Miyabi.office.lovestruck">'))).toBe(true)
+        expect(formated.some((message) => message.content.startsWith('Authoritative image'))).toBe(false)
+        expect(formated.at(-2)?.content).toBe('[DIRECTION]\nContinue the scene.')
+        expect(formated.at(-1)?.content).toBe('Mẹ ơi?')
     })
 })

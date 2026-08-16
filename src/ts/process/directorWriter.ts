@@ -73,19 +73,19 @@ Hard rules:
 - Do not invent a word count or response length. WRITING STYLE may report the baseline's observed approximate length or an explicit length request from the latest user.
 - Focus SITUATION, FACTS and CHARACTER on current continuity created or changed by chat history. Do not summarize the full character card, lorebook, world data, author notes, asset list or preset configuration that the Writer already receives directly.
 - Prefer short, complete prose paragraphs for scene facts, character state, and direction so the Writer does not imitate note-taking punctuation. Preserve exact code or tags in FACTS only when they are actual story facts, never as output instructions.
-- Do not put timestamps, speaker-label syntax, sound markers, gloss or annotation syntax, image-tag syntax, asset keys, or other rendering instructions in WRITING STYLE or DIRECTION. The Writer receives its active preset and authoritative output protocols separately.
+- Do not put timestamps, speaker-label syntax, sound markers, gloss or annotation syntax, image-tag syntax, asset keys, or other rendering instructions in WRITING STYLE or DIRECTION. The Writer receives the rendered active output-protocol context directly.
 
 Output nothing but the sections below, in this order, each on its own line as a bracketed header.`
 
 export const defaultWriterPrompt = `You are writing the next roleplay reply.
 
-You receive the active non-history character, world, author-note and output-protocol context directly. The scene packet is the authoritative handoff for history continuity, current state and dramatic direction. Any system message after the packet is an authoritative output protocol and overrides packet comments about formatting.
+You receive the active non-history character, world, author-note and output-protocol context directly. The scene packet is the authoritative handoff for history continuity, current state and dramatic direction.
 
 - Do not invent earlier events that contradict the packet.
 - Never act, speak or decide for the user's character.
 - Write in the language named by the packet.
 - Follow WRITING STYLE only for prose continuity such as approximate response length, paragraph rhythm, point of view, tone, narration and dialogue balance, sentence texture, and sensory density. Do not copy scene content from the style source.
-- All rendering syntax comes from this Writer preset or an authoritative system message after the packet. Packet headers, bullets, labels, brackets, parentheses, timestamps, tags, markup, and example syntax are context only and must never be copied into the reply as style.
+- All rendering syntax comes from the retained active output-protocol context. Packet headers, bullets, labels, brackets, parentheses, timestamps, tags, markup, and example syntax are context only and must never be copied into the reply as style.
 - Apply a style change only when WRITING STYLE says the latest user explicitly requested it, and preserve the baseline for every other dimension.
 - When WRITING STYLE says there is no baseline and describes no explicit user request, choose the prose style yourself.
 - Write only the roleplay reply. No headers, no commentary, no restating the packet.
@@ -104,7 +104,7 @@ function getDirectorOutputContract(styleBase: WritingStyleBase): string {
 - Writing-style baseline: ${styleStatus}
 - The Writer separately receives the complete non-history prompt context. Do not repeat the full character description, lorebook, world data, author notes, preset rules, rendering syntax, or asset list. Transfer only history-dependent continuity, the character's currently active state, and the dramatic direction for this turn.
 - The first line under WRITING STYLE must contain exactly "${expectedBase}" and nothing else. This section contains prose style only. Describe approximate length and density, paragraph cadence, narration and dialogue balance, point of view and tense, tone, sentence texture, and sensory detail.
-- Do not report or reproduce timestamps, speaker-label syntax, sound-effect markers, gloss or annotation syntax, HTML or custom tags, image placement rules, asset keys, or any other rendering protocol anywhere in the packet. The Writer preset and later authoritative system messages own all output syntax.
+- Do not report or reproduce timestamps, speaker-label syntax, sound-effect markers, gloss or annotation syntax, HTML or custom tags, image placement rules, asset keys, or any other rendering protocol anywhere in the packet. The retained active output-protocol context owns all output syntax.
 - A clear style, length, tone, point-of-view, formatting, or media-placement request in the latest user message overrides only those named dimensions. Describe it with a sentence beginning "The latest user explicitly requests" and keep every unspecified baseline dimension. Plot content by itself is not a style request.
 - Never critique or improve the baseline. Never add a preference based on the character card, other history, genre conventions, or your own taste.
 - Prefer concise English prose paragraphs after each bracketed header. Lists or notation are allowed when they preserve complex facts or exact syntax more safely, but never add decorative notation that is absent from the source.
@@ -652,77 +652,11 @@ export function buildWriterFormated(arg: {
 
     out.push({ role: 'system', content: arg.packet })
 
-    const assetInstruction = buildWriterAssetInstruction(
-        arg.writer,
-        arg.currentChar,
-        out.map((message) => message.content)
-    )
-    if (assetInstruction) {
-        // This deliberately comes after the packet. A Director must not be able to
-        // remove an output protocol by putting "no image tags" in FORBIDDEN.
-        out.push({ role: 'system', content: assetInstruction })
-    }
-
     if (arg.userMessage) {
         out.push(arg.userMessage)
     }
 
     return out
-}
-
-export function buildWriterAssetInstruction(
-    writer: botPreset,
-    currentChar?: character,
-    renderedWriterPrompts: string[] = []
-): string {
-    if (!currentChar?.prebuiltAssetCommand) {
-        return ''
-    }
-
-    const rawCustomImageInstruction = (writer?.promptTemplate ?? []).some((item) =>
-        (item.type === 'plain' || item.type === 'jailbreak' || item.type === 'cot')
-        && item.text.includes('{{//@customimageinstruction}}')
-    )
-    const rawWriterPrompts = (writer?.promptTemplate ?? [])
-        .flatMap((item) => item.type === 'chatML' || item.type === 'plain' || item.type === 'jailbreak' || item.type === 'cot'
-            ? [item.text]
-            : [])
-    if ((writer?.promptTemplate ?? []).length === 0) {
-        rawWriterPrompts.push(writer?.mainPrompt ?? '', writer?.jailbreak ?? '', writer?.globalNote ?? '')
-    }
-    const imageProtocolText = [getRolePrompt(writer, 'writer'), ...rawWriterPrompts, ...renderedWriterPrompts].join('\n')
-    const customImageTag = Array.from(imageProtocolText.matchAll(/<\s*([a-z][\w-]*)\b[^>]*\bsrc\s*=/gi))
-        .map((match) => match[1])
-        .find((tag) => tag.toLowerCase() !== 'img' && /img|image/i.test(tag))
-    const hasCustomImageInstruction = rawCustomImageInstruction || !!customImageTag
-
-    const excluded = new Set(currentChar.prebuiltAssetExclude ?? [])
-    const keys = (currentChar.additionalAssets ?? [])
-        .filter((asset) => asset?.[0]?.trim() && !excluded.has(asset[1]))
-        .map((asset) => asset[0])
-
-    if (keys.length === 0) {
-        return ''
-    }
-
-    const placementRules = hasCustomImageInstruction
-        ? `- Follow the Writer preset's custom image instruction for tag syntax/format, image count, and placement.
-- That custom instruction cannot add or alter allowed src keys.`
-        : `- Insert HTML image tags between paragraphs when they match the current character, outfit, situation, or emotion.
-- Use at least one image and use different matching images when appropriate.`
-    const formatRule = customImageTag
-        ? `- Format every image exactly as: <${customImageTag} src="EXACT_KEY_FROM_LIST">. Never replace <${customImageTag}> with <img>.`
-        : hasCustomImageInstruction
-            ? '- Put an exact key from the allowlist into every image tag using the custom instruction\'s required syntax.'
-            : '- Format every image as: <img src="EXACT_KEY_FROM_LIST">'
-
-    return `Authoritative image output protocol:
-${placementRules}
-- Every src MUST be copied exactly from the allowed key list below. Never invent, translate, normalize, shorten, or paraphrase a key.
-- If there is no exact semantic match, choose the closest key from this same list. Do not create a new key.
-- This protocol overrides any statement in the scene packet that says to omit image tags or changes the allowed keys.
-Allowed image src keys (JSON): ${JSON.stringify(keys)}
-${formatRule}`
 }
 
 /**
