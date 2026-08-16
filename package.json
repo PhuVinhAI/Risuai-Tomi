@@ -14,6 +14,7 @@
     "preview": "vite preview",
     "check": "svelte-check --tsconfig ./tsconfig.json",
     "test": "vitest run",
+    "deploy:cloudflare": "pnpm buildsite && wrangler deploy --keep-vars",
     "tauri": "tauri",
     "buildsite": "vite build --outDir dist",
     "runserver": "node server/node/server.cjs",
@@ -124,7 +125,8 @@
     "typescript": "^5.9.3",
     "vite": "^8.0.3",
     "vite-plugin-wasm": "3.6.0",
-    "vitest": "^4.1.0"
+    "vitest": "^4.1.0",
+    "wrangler": "4.68.0"
   },
   "pnpm": {
     "neverBuiltDependencies": [
