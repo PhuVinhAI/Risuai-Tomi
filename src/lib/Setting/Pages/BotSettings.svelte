@@ -33,7 +33,7 @@
     import OpenrouterSettings from "./OpenrouterSettings.svelte";
     import ChatFormatSettings from "./ChatFormatSettings.svelte";
     import PromptSettings from "./PromptSettings.svelte";
-    import DirectorWriterPreset from "./DirectorWriterPreset.svelte";
+    import PackerWriterPreset from "./PackerWriterPreset.svelte";
     import { openPresetList } from "src/ts/stores.svelte";
     import { selectSingleFile } from "src/ts/util";
     import { getModelInfo, LLMFlags, LLMFormat, LLMProvider } from "src/ts/model/modellist";
@@ -845,7 +845,7 @@
     {:else if submenu === 2}
         <PromptSettings mode='inline' />
     {/if}
-    <DirectorWriterPreset />
+    <PackerWriterPreset />
 {/if}
 
 

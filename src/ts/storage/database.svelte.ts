@@ -10,7 +10,7 @@ import type { NAISettings } from '../process/models/nai';
 import { prebuiltNAIpresets, prebuiltPresets } from '../process/templates/templates';
 import { defaultColorScheme, type ColorScheme } from '../gui/colorscheme';
 import type { PromptItem, PromptSettings } from '../process/prompt';
-import type { DirectorWriterRole, DirectorWriterSettings, PacketSchemaRow } from '../process/directorWriter';
+import type { PackerWriterRole, PackerWriterSettings } from '../process/packerWriter';
 import type { OobaChatCompletionRequestParams } from '../model/ooba';
 import { type HypaV3Settings, type HypaV3Preset, createHypaV3Preset } from '../process/memory/hypav3'
 import { normalizeTranslatorPresetState, type TranslatorPreset } from '../translator/presets'
@@ -440,9 +440,9 @@ export function setDatabase(data:Database){
     data.google.accessToken ??= ''
     data.google.projectId ??= ''
     data.genTime ??= 1
-    data.directorWriter ??= {
+    data.packerWriter ??= {
         enabled: false,
-        directorPreset: '',
+        packerPreset: '',
         writerPreset: '',
         rerollMode: 'writer',
         logEnabled: false,
@@ -1143,8 +1143,8 @@ export interface Database{
     enableCustomFlags: boolean
     googleClaudeTokenizing: boolean
     presetChain: string
-    /** Director–Writer pipeline. Presets are referenced by name, read as data, never applied. */
-    directorWriter?: DirectorWriterSettings
+    /** Packer–Writer pipeline. Presets are referenced by name and applied per stage. */
+    packerWriter?: PackerWriterSettings
     legacyMediaFindings?:boolean
     geminiStream?:boolean
     assetMaxDifference:number
@@ -1604,12 +1604,10 @@ export interface groupChat{
 
 export interface botPreset{
     name?:string
-    /** Director/Writer role tick. The two are mutually exclusive by design. */
-    dwRole?: DirectorWriterRole|null
+    /** Packer/Writer role tick. The two are mutually exclusive by design. */
+    pwRole?: PackerWriterRole|null
     /** Role prompt, shown in preset settings only once a role is ticked. */
-    dwPrompt?: string
-    /** Packet schema. Only meaningful on a Director preset. */
-    dwSchema?: PacketSchemaRow[]
+    pwPrompt?: string
     apiType?: string
     openAIKey?: string
     localNetworkMode?: boolean
@@ -1901,13 +1899,12 @@ export interface MessageGenerationInfo{
         stage3?: number
         stage4?: number
     }
-    /** Director–Writer: the packet this reply was rendered from, plus its identity. */
-    directorPacket?: string
-    directorHistoryHash?: string
-    directorPresetName?: string
+    /** Packer–Writer: the packet this reply was rendered from, plus its identity. */
+    packerPacket?: string
+    packerHistoryHash?: string
+    packerPresetName?: string
     writerPresetName?: string
-    directorPromptHash?: string
-    directorSchemaHash?: string
+    packerPromptHash?: string
 }
 
 export interface MessagePresetInfo{
@@ -2079,9 +2076,8 @@ export function saveCurrentPreset(){
     }
     const savedPreset:botPreset =  {
         name: pres[db.botPresetsId].name,
-        dwRole: pres[db.botPresetsId].dwRole ?? null,
-        dwPrompt: pres[db.botPresetsId].dwPrompt ?? '',
-        dwSchema: safeStructuredClone(pres[db.botPresetsId].dwSchema) ?? null,
+        pwRole: pres[db.botPresetsId].pwRole ?? null,
+        pwPrompt: pres[db.botPresetsId].pwPrompt ?? '',
         apiType: db.apiType,
         openAIKey: db.openAIKey,
         localNetworkMode: db.localNetworkMode,

@@ -52,9 +52,9 @@ interface requestDataArgument{
     rememberToolUsage?: boolean
     blockPlugins?:boolean
     /**
-     * Skip the `request` trigger for this call. Used by the Director–Writer pipeline so
+     * Skip the `request` trigger for this call. Used by the Packer–Writer pipeline so
      * a user's request scripts run once per turn (on the Writer) instead of twice, and
-     * never receive the Director prompt, which is not a roleplay prompt.
+     * never receive the packer prompt, which is not a roleplay prompt.
      */
     skipRequestTrigger?:boolean
     /**
@@ -226,7 +226,7 @@ export async function requestChatData(arg:requestDataArgument, model:ModelModeEx
     const fallBackModels:string[] = safeStructuredClone(db?.fallbackModels?.[model] ?? [])
     const tools = arg.tools ?? (await getTools())
     if(arg.staticModel){
-        // An explicit per-call model (Director–Writer) is the primary attempt, with any
+        // An explicit per-call model (Packer–Writer) is the primary attempt, with any
         // configured fallbacks tried after it. Without this the loop's first attempt
         // would be fallbackModels[0], silently running on the wrong model.
         fallBackModels.unshift(arg.staticModel)
