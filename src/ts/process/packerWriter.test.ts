@@ -24,6 +24,7 @@ import {
     hashHistoryPrefix,
     normalizePackerPacket,
     runPacker,
+    shouldActivatePacker,
 } from './packerWriter'
 
 describe('Packer-Writer history boundary', () => {
@@ -46,6 +47,35 @@ describe('Packer-Writer history boundary', () => {
         expect(boundary.hasGeneratedReply).toBe(false)
         expect(boundary.previousReply).toBeNull()
         expect(boundary.messagesAfterPreviousReply).toHaveLength(1)
+    })
+
+    it('activates at the configurable Writer-reply threshold without an upper cap', () => {
+        expect(shouldActivatePacker(0, 1)).toBe(false)
+        expect(shouldActivatePacker(1, 1)).toBe(true)
+        expect(shouldActivatePacker(4, 5)).toBe(false)
+        expect(shouldActivatePacker(5, 5)).toBe(true)
+        expect(shouldActivatePacker(99_999, 100_000)).toBe(false)
+        expect(shouldActivatePacker(100_000, 100_000)).toBe(true)
+    })
+
+    it('keeps the complete normal request before the activation threshold', () => {
+        const base = [
+            { role: 'system', content: 'Static prompt' },
+            { role: 'assistant', content: 'Greeting', removable: true },
+            { role: 'user', content: 'Old user', memo: 'u1', removable: true },
+            { role: 'assistant', content: 'Old AI', memo: 'a1', removable: true },
+            { role: 'user', content: 'Current user', memo: 'u2' },
+            { role: 'system', content: 'Post-everything protocol' },
+        ] as any
+        const writer = buildWriterFormated({
+            base,
+            writer: {} as any,
+            packet: 'This must not be used before activation.',
+            keepFullHistory: true,
+        })
+
+        expect(writer.slice(1).map((message) => message.content)).toEqual(base.map((message: any) => message.content))
+        expect(writer.some((message) => message.content.includes('OLDER HISTORY CONTEXT'))).toBe(false)
     })
 
     it('keeps only AI 30 and the current user for the Writer after 30 turns', () => {
@@ -203,6 +233,7 @@ describe('Packer-Writer history boundary', () => {
         ] as any, '', 'char-1', true)
 
         expect(boundary.previousReply?.content).toBe('Current character reply')
+        expect(boundary.generatedReplyCount).toBe(1)
         expect(boundary.messagesAfterPreviousReply.map((message) => message.data)).toEqual([
             'User follow-up',
             'Other character reply',

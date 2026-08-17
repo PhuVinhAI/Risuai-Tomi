@@ -8,8 +8,9 @@ export interface PackerWriterLogEntry {
     time: string
     chatId: string
     messageId: string
-    path: 'first-writer' | 'fresh' | 'reroll-writer' | 'continue'
+    path: 'direct-writer' | 'fresh' | 'reroll-writer' | 'continue'
     reason: string
+    packerActive: boolean
     historyHashMatched: boolean
     packer?: {
         preset: string

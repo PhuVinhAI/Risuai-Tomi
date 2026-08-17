@@ -1340,6 +1340,8 @@ export const languageEnglish = {
     packerWriterRoleWriter: "Writer",
     packerRolePrompt: "Context Packager Prompt",
     writerRolePrompt: "Writer Prompt",
+    packerStartAfterReplies: "Start packaging after Writer replies",
+    packerStartAfterRepliesDesc: "1 starts the packer before Writer's second reply. Higher values keep normal full history for longer. No upper limit.",
     packerRerollMode: "On Reroll",
     packerRerollModeWriter: "Rerun Writer only (cheap)",
     packerRerollModeBoth: "Rerun Packager too (costs another call)",

@@ -13,6 +13,7 @@ export interface PackerWriterSettings {
     packerPreset: string
     writerPreset: string
     rerollMode: 'writer' | 'both'
+    startAfterReplies: number
     logEnabled: boolean
     packetCacheSize: number
 }
@@ -22,6 +23,7 @@ export const defaultPackerWriterSettings: PackerWriterSettings = {
     packerPreset: '',
     writerPreset: '',
     rerollMode: 'writer',
+    startAfterReplies: 1,
     logEnabled: false,
     packetCacheSize: 40,
 }
@@ -62,6 +64,7 @@ export interface HistoryTurn {
 
 export interface RecentHistoryBoundary {
     hasGeneratedReply: boolean
+    generatedReplyCount: number
     previousReply: HistoryTurn | null
     messagesAfterPreviousReply: Message[]
     olderHistory: Message[]
@@ -88,15 +91,18 @@ export function getRecentHistoryBoundary(
     groupChat = false,
 ): RecentHistoryBoundary {
     const visible = visibleHistory(messages)
-    const anchorIndex = [...visible.messages].findLastIndex((message) => {
+    const isCurrentCharacterReply = (message: Message) => {
         if (message.role !== 'char') return false
         if (!characterId) return true
         return groupChat ? message.saying === characterId : (!message.saying || message.saying === characterId)
-    })
+    }
+    const generatedReplyCount = visible.messages.filter(isCurrentCharacterReply).length
+    const anchorIndex = [...visible.messages].findLastIndex(isCurrentCharacterReply)
 
     if (anchorIndex < 0) {
         return {
             hasGeneratedReply: false,
+            generatedReplyCount,
             previousReply: !visible.reset && greeting.trim()
                 ? { role: 'greeting', content: greeting, source: 'greeting' }
                 : null,
@@ -110,6 +116,7 @@ export function getRecentHistoryBoundary(
     const anchor = visible.messages[anchorIndex]
     return {
         hasGeneratedReply: true,
+        generatedReplyCount,
         previousReply: {
             role: anchor.role,
             content: anchor.data ?? '',
@@ -171,14 +178,21 @@ export interface PackerWriterResolved {
 
 export function getPackerWriterSettings(): PackerWriterSettings {
     const raw = getDatabase().packerWriter
+    const startAfterReplies = Math.max(1, Math.floor(Number(raw?.startAfterReplies) || 1))
     return {
         enabled: raw?.enabled ?? false,
         packerPreset: raw?.packerPreset ?? '',
         writerPreset: raw?.writerPreset ?? '',
         rerollMode: raw?.rerollMode === 'both' ? 'both' : 'writer',
+        startAfterReplies,
         logEnabled: raw?.logEnabled ?? false,
         packetCacheSize: raw?.packetCacheSize ?? 40,
     }
+}
+
+export function shouldActivatePacker(generatedReplyCount: number, startAfterReplies: number): boolean {
+    const threshold = Math.max(1, Math.floor(Number(startAfterReplies) || 1))
+    return generatedReplyCount >= threshold
 }
 
 export function resolvePackerWriter(): PackerWriterResolved | null {
@@ -345,6 +359,7 @@ export function buildWriterFormated(arg: {
     previousReply?: HistoryTurn | null
     messagesAfterPreviousReply?: Message[]
     historyMessages?: Message[]
+    keepFullHistory?: boolean
     userMessage?: OpenAIChat | null
     currentChar?: character
 }): OpenAIChat[] {
@@ -377,6 +392,15 @@ export function buildWriterFormated(arg: {
             out.push({ role: 'system', content: packet })
             packetInserted = true
         }
+    }
+
+    if (arg.keepFullHistory && arg.base !== undefined) {
+        for (const message of arg.base) {
+            const contextMessage = { ...message }
+            delete contextMessage.removable
+            out.push(contextMessage)
+        }
+        return out
     }
 
     if (arg.base !== undefined) {

@@ -445,9 +445,11 @@ export function setDatabase(data:Database){
         packerPreset: '',
         writerPreset: '',
         rerollMode: 'writer',
+        startAfterReplies: 1,
         logEnabled: false,
         packetCacheSize: 40,
     }
+    data.packerWriter.startAfterReplies ??= 1
     data.promptSettings ??= {
         assistantPrefill: '',
         postEndInnerFormat: '',
@@ -1905,6 +1907,8 @@ export interface MessageGenerationInfo{
     packerPresetName?: string
     writerPresetName?: string
     packerPromptHash?: string
+    /** Whether this generation actually used the packer/history-compaction path. */
+    packerActive?: boolean
 }
 
 export interface MessagePresetInfo{

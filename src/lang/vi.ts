@@ -1222,6 +1222,8 @@ export const languageVietnamese = {
     "packerWriterRoleWriter": "Người viết",
     "packerRolePrompt": "Prompt Bộ đóng gói ngữ cảnh",
     "writerRolePrompt": "Prompt Người viết",
+    "packerStartAfterReplies": "Bắt đầu đóng gói sau số phản hồi Người viết",
+    "packerStartAfterRepliesDesc": "1 nghĩa là bắt đầu trước phản hồi thứ hai. Số lớn hơn sẽ giữ full history bình thường lâu hơn. Không giới hạn trần.",
     "packerRerollMode": "Khi reroll",
     "packerRerollModeWriter": "Chỉ chạy lại Người viết (rẻ)",
     "packerRerollModeBoth": "Chạy lại cả Bộ đóng gói (tốn thêm một call)",

@@ -23,6 +23,7 @@
     let logStats = $state({ count: 0, bytes: 0 })
 
     DBState.db.packerWriter ??= { ...defaultPackerWriterSettings }
+    DBState.db.packerWriter.startAfterReplies ??= 1
 
     const packerPresets = $derived(listPresetsByRole('packer'))
     const writerPresets = $derived(listPresetsByRole('writer'))
@@ -93,6 +94,10 @@
         <OptionInput value="writer">{language.packerRerollModeWriter}</OptionInput>
         <OptionInput value="both">{language.packerRerollModeBoth}</OptionInput>
     </SelectInput>
+
+    <span class="text-textcolor mt-4">{language.packerStartAfterReplies}</span>
+    <NumberInput bind:value={DBState.db.packerWriter.startAfterReplies} min={1}/>
+    <span class="text-textcolor2 text-sm">{language.packerStartAfterRepliesDesc}</span>
 
     <span class="text-textcolor mt-4">{language.packerWriterPacketCacheSize}</span>
     <NumberInput bind:value={DBState.db.packerWriter.packetCacheSize} min={1} max={500}/>

@@ -22,6 +22,7 @@ import {
     resolvePackerWriter,
     runPacker,
     setCachedPacket,
+    shouldActivatePacker,
 } from "./packerWriter";
 import { appendPackerWriterLog } from "./packerWriterLog";
 import { stableDiff } from "./stableDiff";
@@ -1601,21 +1602,31 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         })
 
         let pwPacket = ''
-        let pwPath: 'first-writer'|'fresh'|'reroll-writer'|'continue' = pwBoundary.hasGeneratedReply ? 'fresh' : 'first-writer'
-        let pwReason = pwBoundary.hasGeneratedReply
-            ? 'older visible history may be needed'
-            : 'first Writer turn: packer skipped'
+        let usePackerForTurn = shouldActivatePacker(
+            pwBoundary.generatedReplyCount,
+            pw.settings.startAfterReplies,
+        )
+        let pwPath: 'direct-writer'|'fresh'|'reroll-writer'|'continue' = usePackerForTurn ? 'fresh' : 'direct-writer'
+        let pwReason = usePackerForTurn
+            ? `activation threshold reached: ${pwBoundary.generatedReplyCount}/${pw.settings.startAfterReplies} previous Writer replies`
+            : `direct Writer with full history: ${pwBoundary.generatedReplyCount}/${pw.settings.startAfterReplies} previous Writer replies`
         let pwHashMatched = false
         let pwRun: Awaited<ReturnType<typeof runPacker>> | null = null
         let pwPackerPromptHash = ''
         let pwPackerTokens = 0
-        let shouldRunPacker = pwBoundary.hasGeneratedReply && !arg.continue
+        let shouldRunPacker = usePackerForTurn && !arg.continue
 
         if(arg.continue){
-            pwPacket = pwMessages.at(-1)?.generationInfo?.packerPacket ?? ''
+            const previousGeneration = pwMessages.at(-1)?.generationInfo
+            if(typeof previousGeneration?.packerActive === 'boolean'){
+                usePackerForTurn = previousGeneration.packerActive
+            }
+            pwPacket = usePackerForTurn ? previousGeneration?.packerPacket ?? '' : ''
             pwPath = 'continue'
             pwHashMatched = true
-            pwReason = 'continue: reused the partial reply and its stored packet'
+            pwReason = usePackerForTurn
+                ? 'continue: reused the partial reply and its stored packet'
+                : 'continue: kept the original direct-Writer full-history mode'
             shouldRunPacker = false
         }
         else if(shouldRunPacker){
@@ -1667,6 +1678,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                     messageId: generationId,
                     path: pwPath,
                     reason: pwReason,
+                    packerActive: usePackerForTurn,
                     historyHashMatched: pwHashMatched,
                     packerPromptHash: pwPromptHash,
                     packer: {
@@ -1696,6 +1708,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
             previousReply: pwBoundary.previousReply,
             messagesAfterPreviousReply: pwBoundary.messagesAfterPreviousReply,
             historyMessages: pwBoundary.visibleMessages,
+            keepFullHistory: !usePackerForTurn,
             currentChar,
         })
 
@@ -1705,6 +1718,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         generationInfo.packerPresetName = pw.packer.name ?? ''
         generationInfo.writerPresetName = pw.writer.name ?? ''
         generationInfo.packerPromptHash = pwPromptHash
+        generationInfo.packerActive = usePackerForTurn
 
         void appendPackerWriterLog({
             time: new Date().toISOString(),
@@ -1712,6 +1726,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
             messageId: generationId,
             path: pwPath,
             reason: pwReason,
+            packerActive: usePackerForTurn,
             historyHashMatched: pwHashMatched,
             packerPromptHash: pwPromptHash,
             packer: pwRun ? {
