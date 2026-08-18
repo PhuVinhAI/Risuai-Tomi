@@ -51,19 +51,9 @@ interface requestDataArgument{
     tools?: MCPTool[]
     rememberToolUsage?: boolean
     blockPlugins?:boolean
-    /**
-     * Skip the `request` trigger for this call. Used by the Packer–Writer pipeline so
-     * a user's request scripts run once per turn (on the Writer) instead of twice, and
-     * never receive the packer prompt, which is not a roleplay prompt.
-     */
+    /** Skip the user-facing `request` trigger for internal model calls. */
     skipRequestTrigger?:boolean
-    /**
-     * Run this call as if `preset` were the active preset. Resolved once into `db`, which
-     * every read in the request layer goes through, so the call gets that preset's
-     * parameters, provider settings, keys, additional parameters and reasoning options —
-     * without touching DBState.db, so nothing is persisted and an abort cannot leave the
-     * user on the wrong preset.
-     */
+    /** Run this call with a detached preset without changing the active preset. */
     presetOverride?:botPreset
     /** Resolved form of `presetOverride`. Set internally; callers pass `presetOverride`. */
     db?:Database
@@ -226,7 +216,7 @@ export async function requestChatData(arg:requestDataArgument, model:ModelModeEx
     const fallBackModels:string[] = safeStructuredClone(db?.fallbackModels?.[model] ?? [])
     const tools = arg.tools ?? (await getTools())
     if(arg.staticModel){
-        // An explicit per-call model (Packer–Writer) is the primary attempt, with any
+        // An explicit per-call model is the primary attempt, with any
         // configured fallbacks tried after it. Without this the loop's first attempt
         // would be fallbackModels[0], silently running on the wrong model.
         fallBackModels.unshift(arg.staticModel)

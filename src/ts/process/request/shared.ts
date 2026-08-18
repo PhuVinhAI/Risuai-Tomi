@@ -183,9 +183,8 @@ export function applyParameters(
         return ['low', 'medium', 'high'][verbosity] ?? 'medium'
     }
 
-    // A preset-scoped call (Packer–Writer) is fully defined by its own preset, so the
-    // global separate-parameters section must not override it.
-    if (!arg.db && db.seperateParametersEnabled && (modelMode !== 'model' || db.seperateParametersByModel)) {
+    // Scoped calls read separate parameters from their detached preset database.
+    if (db.seperateParametersEnabled && (modelMode !== 'model' || db.seperateParametersByModel)) {
         let sepParams = db.seperateParameters[modelMode]
         if (db.seperateParametersByModel){
             sepParams = db.seperateParameters.overrides[arg.modelId]

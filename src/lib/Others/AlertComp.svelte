@@ -511,18 +511,16 @@
                     {/await}
                 {/if}
                 {#if generationInfoMenuIndex === 3}
-                    {@const pwInfo = DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].message[$alertGenerationInfoStore.idx].generationInfo}
-                    {#if pwInfo?.writerPresetName}
+                    {@const transformerInfo = DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].message[$alertGenerationInfoStore.idx].generationInfo}
+                    {#if transformerInfo?.transformerPresetName}
                         <div class="grid grid-cols-2 gap-y-2 gap-x-4 mt-4">
-                            <span class="text-blue-500">{language.packerPreset}</span>
-                            <span class="text-blue-500 justify-self-end">{pwInfo.packerPresetName ?? ''}</span>
-                            <span class="text-blue-500">{language.writerPreset}</span>
-                            <span class="text-blue-500 justify-self-end">{pwInfo.writerPresetName ?? ''}</span>
-                            {#if pwInfo.packerPacket}
-                                <span class="text-green-500">{language.packerPacket}</span>
-                                <div class="col-span-2 max-h-80 overflow-y-auto border border-stone-500 rounded-sm p-4 bg-gray-900">
-                                    <pre class="whitespace-pre-wrap text-sm">{pwInfo.packerPacket}</pre>
-                                </div>
+                            <span class="text-blue-500">{language.responseTransformerPreset}</span>
+                            <span class="text-blue-500 justify-self-end">{transformerInfo.transformerPresetName}</span>
+                            <span class="text-green-500">{language.responseTransformerModel}</span>
+                            <span class="text-green-500 justify-self-end">{transformerInfo.transformerModel ?? ''}</span>
+                            {#if transformerInfo.transformerError}
+                                <span class="text-red-500">{language.responseTransformerError}</span>
+                                <span class="text-red-500 justify-self-end text-right">{transformerInfo.transformerError}</span>
                             {/if}
                         </div>
                     {/if}

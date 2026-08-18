@@ -8,7 +8,7 @@
     import { type Message } from "../../ts/storage/database.svelte";
     import { DBState } from 'src/ts/stores.svelte';
     import { getCharImage } from "../../ts/characters";
-    import { chatProcessStage, packerStatus, doingChat, sendChat } from "../../ts/process/index.svelte";
+    import { chatProcessStage, transformerStatus, doingChat, sendChat } from "../../ts/process/index.svelte";
     import { sleep } from "../../ts/util";
     import { language } from "../../lang";
     import { isExpTranslator, translate } from "../../ts/translator/translator";
@@ -582,12 +582,12 @@
                 showNewMessageButton = false;
             }
         }}>
-            {#if $packerStatus}
+            {#if $transformerStatus}
                 <div class="w-full flex justify-center px-4">
                     <div
                         class="text-textcolor2 text-xs leading-relaxed w-full max-w-4xl border-l-2 border-borderc px-3 py-2"
-                        aria-label={language.packerWorking}
-                    >{$packerStatus}</div>
+                        aria-label={language.responseTransformerWorking}
+                    >{$transformerStatus}</div>
                 </div>
             {/if}
             <div

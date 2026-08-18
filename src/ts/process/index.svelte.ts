@@ -1,5 +1,5 @@
 import { get, writable } from "svelte/store";
-import { type character, type MessageGenerationInfo, type Chat, type MessagePresetInfo, changeToPreset, setCurrentChat, type Message, type StreamingDisplayOptimizationMode, type botPreset } from "../storage/database.svelte";
+import { type character, type MessageGenerationInfo, type Chat, type MessagePresetInfo, changeToPreset, setCurrentChat, type Message, type StreamingDisplayOptimizationMode } from "../storage/database.svelte";
 import { DBState } from '../stores.svelte';
 import { CharEmotion, selectedCharID } from "../stores.svelte";
 import { ChatTokenizer, tokenize, tokenizeNum } from "../tokenizer";
@@ -9,22 +9,7 @@ import { parseChatML } from "../parser/chatML";
 import { loadLoreBookV3Prompt } from "./lorebook.svelte";
 import { findCharacterbyId, getAuthorNoteDefaultText, getPersonaPrompt, getUserName, isLastCharPunctuation, trimUntilPunctuation, parseToggleSyntax, prebuiltAssetCommand } from "../util";
 import { requestChatData } from "./request/request";
-import {
-    buildPackerFormated,
-    buildWriterFormated,
-    getCachedPacket,
-    getPackerInstruction,
-    getRecentHistoryBoundary,
-    hashHistoryPrefix,
-    hashString,
-    packetCacheKey,
-    pickLatestUserMessage,
-    resolvePackerWriter,
-    runPacker,
-    setCachedPacket,
-    shouldActivatePacker,
-} from "./packerWriter";
-import { appendPackerWriterLog } from "./packerWriterLog";
+import { buildTransformerFormated, resolveResponseTransformer, stripResponseReasoning } from "./responseTransformer";
 import { stableDiff } from "./stableDiff";
 import { processScript, processScriptFull, risuChatParser } from "./scripts";
 import { exampleMessage } from "./exampleMessages";
@@ -107,12 +92,7 @@ export interface requestTokenPart{
 
 export const doingChat = writable(false)
 export const chatProcessStage = writable(0)
-/**
- * Non-empty while the context packer is running. Shown as a single status line and never
- * written into the message body — otherwise it would end up in the history the
- * packer reads next turn.
- */
-export const packerStatus = writable('')
+export const transformerStatus = writable('')
 export const abortChat = writable(false)
 export let requestTokenParts:{[key:string]:requestTokenPart[]} = {}
 export let previewFormated:OpenAIChat[] = []
@@ -1573,185 +1553,13 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         return true
     }
 
-    // ── Packer–Writer pipeline ─────────────────────────────────────────────────
-    // The first Writer turn always skips the packer. Later turns package only
-    // relevant older history, while the latest reply remains verbatim.
-    let pwWriter: botPreset | null = null
-    const pw = (arg.preview || arg.previewPrompt) ? null : resolvePackerWriter()
-    if(pw){
-        const pwMessages = DBState.db.characters[selectedChar].chats[selectedChat].message
-        const pwFirstMessage = nowChatroom.type === 'group'
-            ? ''
-            : (currentChat.fmIndex === -1
-                ? nowChatroom.firstMessage
-                : nowChatroom.alternateGreetings[currentChat.fmIndex]) ?? ''
-        const pwBoundary = getRecentHistoryBoundary(
-            pwMessages,
-            pwFirstMessage,
-            currentChar?.chaId ?? '',
-            nowChatroom.type === 'group',
-        )
-        const pwPromptHash = hashString(getPackerInstruction(pw.packer))
-        const pwHistoryHash = hashHistoryPrefix(pwMessages, pwFirstMessage)
-        const pwCacheKey = packetCacheKey({
-            historyHash: pwHistoryHash,
-            packerName: pw.packer.name ?? '',
-            writerName: pw.writer.name ?? '',
-            promptHash: pwPromptHash,
-            characterId: currentChar?.chaId ?? '',
-        })
-
-        let pwPacket = ''
-        let usePackerForTurn = shouldActivatePacker(
-            pwBoundary.generatedReplyCount,
-            pw.settings.startAfterReplies,
-        )
-        let pwPath: 'direct-writer'|'fresh'|'reroll-writer'|'continue' = usePackerForTurn ? 'fresh' : 'direct-writer'
-        let pwReason = usePackerForTurn
-            ? `activation threshold reached: ${pwBoundary.generatedReplyCount}/${pw.settings.startAfterReplies} previous Writer replies`
-            : `direct Writer with full history: ${pwBoundary.generatedReplyCount}/${pw.settings.startAfterReplies} previous Writer replies`
-        let pwHashMatched = false
-        let pwRun: Awaited<ReturnType<typeof runPacker>> | null = null
-        let pwPackerPromptHash = ''
-        let pwPackerTokens = 0
-        let shouldRunPacker = usePackerForTurn && !arg.continue
-
-        if(arg.continue){
-            const previousGeneration = pwMessages.at(-1)?.generationInfo
-            if(typeof previousGeneration?.packerActive === 'boolean'){
-                usePackerForTurn = previousGeneration.packerActive
-            }
-            pwPacket = usePackerForTurn ? previousGeneration?.packerPacket ?? '' : ''
-            pwPath = 'continue'
-            pwHashMatched = true
-            pwReason = usePackerForTurn
-                ? 'continue: reused the partial reply and its stored packet'
-                : 'continue: kept the original direct-Writer full-history mode'
-            shouldRunPacker = false
-        }
-        else if(shouldRunPacker){
-            const cached = getCachedPacket(pwCacheKey)
-            pwHashMatched = !!cached
-            if(cached && pw.settings.rerollMode === 'writer'){
-                pwPacket = cached
-                pwPath = 'reroll-writer'
-                pwReason = 'reroll: reused packet for identical visible history'
-                shouldRunPacker = false
-            }
-            else if(cached){
-                pwReason = 'reroll: packer reruns because reroll mode is set to both'
-            }
-        }
-
-        if(shouldRunPacker){
-            const latestUser = pickLatestUserMessage(formated, pwBoundary.messagesAfterPreviousReply)
-            const pwPackerFormated = buildPackerFormated({
-                packer: pw.packer,
-                boundary: pwBoundary,
-                currentChar,
-                currentUserMessage: latestUser?.content,
-            })
-            pwPackerPromptHash = hashString(JSON.stringify(pwPackerFormated))
-            for(const message of pwPackerFormated){
-                pwPackerTokens += await tokenizer.tokenizeChat(message)
-            }
-            packerStatus.set(language.packerWorking)
-            try{
-                pwRun = await runPacker({
-                    formated: pwPackerFormated,
-                    packer: pw.packer,
-                    currentChar,
-                    abortSignal,
-                })
-            }
-            finally{
-                packerStatus.set('')
-            }
-
-            if(abortSignal.aborted){
-                return false
-            }
-            if(!pwRun.ok){
-                void appendPackerWriterLog({
-                    time: new Date().toISOString(),
-                    chatId: DBState.db.characters[selectedChar].chats[selectedChat].id ?? '',
-                    messageId: generationId,
-                    path: pwPath,
-                    reason: pwReason,
-                    packerActive: usePackerForTurn,
-                    historyHashMatched: pwHashMatched,
-                    packerPromptHash: pwPromptHash,
-                    packer: {
-                        preset: pw.packer.name ?? '',
-                        model: pwRun.model ?? pw.packer.aiModel ?? '',
-                        promptTokens: pwPackerTokens,
-                        promptHash: pwPackerPromptHash,
-                        packetChars: pwRun.packet.length,
-                        durationMs: pwRun.durationMs,
-                        packet: pwRun.packet,
-                        attempts: pwRun.attemptLog,
-                    },
-                    validation: pwRun.validation ? { ...pwRun.validation, attempts: pwRun.attempts } : undefined,
-                    error: pwRun.error,
-                })
-                throwError(pwRun.error ?? 'Context packer failed')
-                return false
-            }
-            pwPacket = pwRun.packet
-            setCachedPacket(pwCacheKey, pwPacket, pw.settings.packetCacheSize)
-        }
-
-        formated = buildWriterFormated({
-            base: formated,
-            writer: pw.writer,
-            packet: pwPacket,
-            previousReply: pwBoundary.previousReply,
-            messagesAfterPreviousReply: pwBoundary.messagesAfterPreviousReply,
-            historyMessages: pwBoundary.visibleMessages,
-            keepFullHistory: !usePackerForTurn,
-            currentChar,
-        })
-
-        pwWriter = pw.writer
-        generationInfo.packerPacket = pwPacket
-        generationInfo.packerHistoryHash = pwHistoryHash
-        generationInfo.packerPresetName = pw.packer.name ?? ''
-        generationInfo.writerPresetName = pw.writer.name ?? ''
-        generationInfo.packerPromptHash = pwPromptHash
-        generationInfo.packerActive = usePackerForTurn
-
-        void appendPackerWriterLog({
-            time: new Date().toISOString(),
-            chatId: DBState.db.characters[selectedChar].chats[selectedChat].id ?? '',
-            messageId: generationId,
-            path: pwPath,
-            reason: pwReason,
-            packerActive: usePackerForTurn,
-            historyHashMatched: pwHashMatched,
-            packerPromptHash: pwPromptHash,
-            packer: pwRun ? {
-                preset: pw.packer.name ?? '',
-                model: pwRun.model ?? pw.packer.aiModel ?? '',
-                promptTokens: pwPackerTokens,
-                promptHash: pwPackerPromptHash,
-                packetChars: pwPacket.length,
-                durationMs: pwRun.durationMs,
-                packet: pwPacket,
-                attempts: pwRun.attemptLog.length > 1 ? pwRun.attemptLog : undefined,
-            } : undefined,
-            writer: {
-                preset: pw.writer.name ?? '',
-                model: pw.writer.aiModel ?? '',
-            },
-            validation: pwRun?.validation ? { ...pwRun.validation, attempts: pwRun.attempts } : undefined,
-        })
-    }
+    const responseTransformer = arg.previewPrompt ? null : resolveResponseTransformer()
 
     const req = await requestChatData({
         formated: formated,
         biasString: biases,
         currentChar: currentChar,
-        useStreaming: true,
+        useStreaming: DBState.db.useStreaming,
         isGroupChat: nowChatroom.type === 'group',
         bias: {},
         continue: arg.continue,
@@ -1760,8 +1568,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         previewBody: arg.previewPrompt,
         escape: nowChatroom.type === 'character' && nowChatroom.escapeOutput,
         rememberToolUsage: DBState.db.rememberToolUsage,
-        staticModel: pwWriter?.aiModel || undefined,
-        presetOverride: pwWriter ?? undefined,
+        noMultiGen: !!responseTransformer,
     }, 'model', abortSignal)
 
     console.log(req)
@@ -1778,6 +1585,143 @@ export async function sendChat(chatProcessIndex = -1,arg:{
     let result = ''
     let emoChanged = false
     let resendChat = false
+
+    async function transformResponseDraft(draft: string, msgIndex: number): Promise<{ applied: boolean, result: string }> {
+        if(!responseTransformer || msgIndex < 0){
+            return { applied: false, result: draft }
+        }
+
+        const transformerFormated = buildTransformerFormated({
+            transformer: responseTransformer,
+            draft,
+            currentChar,
+        })
+        if(!transformerFormated[1]?.content.trim()){
+            return { applied: false, result: draft }
+        }
+
+        const chatRoom = DBState.db.characters[selectedChar].chats[selectedChat]
+        const outputMessage = chatRoom.message[msgIndex]
+        if(!outputMessage){
+            return { applied: false, result: draft }
+        }
+
+        const originalData = outputMessage.data
+        generationInfo.transformerPresetName = responseTransformer.preset.name ?? ''
+        transformerStatus.set(language.responseTransformerWorking)
+
+        try{
+            const transformerRequest = await requestChatData({
+                formated: transformerFormated,
+                biasString: responseTransformer.preset.bias ?? [],
+                currentChar,
+                useStreaming: responseTransformer.preset.useStreaming ?? DBState.db.useStreaming,
+                bias: {},
+                chatId: `${generationId}:transformer`,
+                imageResponse: false,
+                rememberToolUsage: false,
+                skipRequestTrigger: true,
+                presetOverride: responseTransformer.preset,
+            }, 'model', abortSignal)
+
+            generationInfo.transformerModel = transformerRequest.model
+                ? getGenerationModelString(transformerRequest.model)
+                : getGenerationModelString(responseTransformer.preset.aiModel)
+
+            if(abortSignal.aborted){
+                outputMessage.data = originalData
+                return { applied: false, result: draft }
+            }
+            if(transformerRequest.type === 'fail'){
+                generationInfo.transformerError = transformerRequest.result
+                outputMessage.data = originalData
+                alertToast(`${language.responseTransformer}: ${transformerRequest.result}`)
+                return { applied: false, result: draft }
+            }
+
+            let transformed = ''
+            const updateMessage = async (content: string) => {
+                const processed = await processScriptFull(nowChatroom, reformatContent(content), 'editoutput', msgIndex)
+                outputMessage.data = processed.data
+                emoChanged = processed.emoChanged
+                DBState.db.characters[selectedChar].reloadKeys += 1
+            }
+
+            if(transformerRequest.type === 'streaming'){
+                const reader = transformerRequest.result.getReader()
+                const performanceMode: StreamingDisplayOptimizationMode = DBState.db.streamingDisplayOptimizationMode ?? 'off'
+                chatRoom.isStreaming = true
+                chatRoom.activeStreamingDisplayOptimizationMode = performanceMode
+                outputMessage.data = ''
+                DBState.db.characters[selectedChar].reloadKeys += 1
+
+                let streamAborted = abortSignal.aborted
+                const abortReader = () => {
+                    streamAborted = true
+                    void reader.cancel().catch(() => {})
+                }
+                abortSignal.addEventListener('abort', abortReader, { once: true })
+                try{
+                    while(!streamAborted){
+                        const chunk = await reader.read()
+                        if(chunk.value){
+                            const firstKey = Object.keys(chunk.value)[0]
+                            transformed = chunk.value[firstKey] ?? ''
+                            const display = DBState.db.removeIncompleteResponse
+                                ? trimUntilPunctuation(transformed)
+                                : transformed
+                            await updateMessage(display)
+                        }
+                        if(chunk.done) break
+                    }
+                }
+                finally{
+                    abortSignal.removeEventListener('abort', abortReader)
+                    chatRoom.isStreaming = false
+                    chatRoom.activeStreamingDisplayOptimizationMode = undefined
+                    DBState.db.characters[selectedChar].reloadKeys += 1
+                    void reader.cancel().catch(() => {})
+                }
+
+                if(streamAborted || abortSignal.aborted || !transformed.trim()){
+                    outputMessage.data = originalData
+                    return { applied: false, result: draft }
+                }
+            }
+            else if(transformerRequest.type === 'success'){
+                transformed = transformerRequest.result
+            }
+            else if(transformerRequest.type === 'multiline'){
+                transformed = transformerRequest.result.find((item) => item[0] === 'char')?.[1]
+                    ?? transformerRequest.result[0]?.[1]
+                    ?? ''
+            }
+
+            if(!stripResponseReasoning(transformed).trim()){
+                generationInfo.transformerError = 'Transformer returned no final response.'
+                outputMessage.data = originalData
+                alertToast(`${language.responseTransformer}: ${generationInfo.transformerError}`)
+                return { applied: false, result: draft }
+            }
+
+            await updateMessage(transformed)
+            generationInfo.transformerApplied = true
+            generationInfo.transformerError = undefined
+            return { applied: true, result: transformed }
+        }
+        catch(error){
+            const message = error instanceof Error ? error.message : String(error)
+            generationInfo.transformerError = message
+            outputMessage.data = originalData
+            if(!abortSignal.aborted){
+                alertToast(`${language.responseTransformer}: ${message}`)
+            }
+            return { applied: false, result: draft }
+        }
+        finally{
+            transformerStatus.set('')
+        }
+    }
     
     if(abortSignal.aborted === true){
         return false
@@ -1954,6 +1898,15 @@ export async function sendChat(chatProcessIndex = -1,arg:{
             return false
         }
 
+        const transformed = await transformResponseDraft(prefix + result, msgIndex)
+        if(abortSignal.aborted){
+            return false
+        }
+        if(transformed.applied){
+            result = transformed.result
+            lastResponseChunk = { '0': transformed.result }
+        }
+
         addRerolls(generationId, Object.values(lastResponseChunk))
 
         DBState.db.characters[selectedChar].chats[selectedChat] = runCurrentChatFunction(DBState.db.characters[selectedChar].chats[selectedChat])
@@ -1997,6 +1950,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         let mrerolls:string[] = []
         let outputMessageIndex = -1
         let outputMessageId: string | undefined
+        let transformerDraft = ''
         for(let i=0;i<msgs.length;i++){
             let msg = msgs[i]
             let mess = msg[1]
@@ -2005,7 +1959,11 @@ export async function sendChat(chatProcessIndex = -1,arg:{
             if(i === 0 && arg.continue){
                 msgIndex -= 1
                 let beforeChat = DBState.db.characters[selectedChar].chats[selectedChat].message[msgIndex]
+                transformerDraft = beforeChat.data + mess
                 result2 = await processScriptFull(nowChatroom, reformatContent(beforeChat.data + mess), 'editoutput', msgIndex)
+            }
+            else if(i === 0){
+                transformerDraft = mess
             }
             if(DBState.db.removeIncompleteResponse){
                 result2.data = trimUntilPunctuation(result2.data)
@@ -2054,9 +2012,33 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                 mrerolls.push(result)
             }
             DBState.db.characters[selectedChar].reloadKeys += 1
-            if(DBState.db.ttsAutoSpeech){
+            if(DBState.db.ttsAutoSpeech && i > 0){
                 await sayTTS(currentChar, result)
             }
+        }
+
+        const transformed = await transformResponseDraft(transformerDraft || result, outputMessageIndex)
+        if(abortSignal.aborted){
+            return false
+        }
+        if(transformed.applied){
+            result = transformed.result
+            if(mrerolls.length > 0){
+                mrerolls[0] = transformed.result
+            }
+
+            const transformedMessage = DBState.db.characters[selectedChar].chats[selectedChat].message[outputMessageIndex]
+            if(transformedMessage){
+                const inlayResult = runInlayScreen(currentChar, transformedMessage.data)
+                transformedMessage.data = inlayResult.text
+                if(inlayResult.promise){
+                    transformedMessage.data = await inlayResult.promise
+                }
+            }
+        }
+
+        if(DBState.db.ttsAutoSpeech && outputMessageIndex >= 0){
+            await sayTTS(currentChar, result)
         }
 
         if(mrerolls.length >1){

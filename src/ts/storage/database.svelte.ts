@@ -10,7 +10,7 @@ import type { NAISettings } from '../process/models/nai';
 import { prebuiltNAIpresets, prebuiltPresets } from '../process/templates/templates';
 import { defaultColorScheme, type ColorScheme } from '../gui/colorscheme';
 import type { PromptItem, PromptSettings } from '../process/prompt';
-import type { PackerWriterRole, PackerWriterSettings } from '../process/packerWriter';
+import type { ResponseTransformerSettings } from '../process/responseTransformer';
 import type { OobaChatCompletionRequestParams } from '../model/ooba';
 import { type HypaV3Settings, type HypaV3Preset, createHypaV3Preset } from '../process/memory/hypav3'
 import { normalizeTranslatorPresetState, type TranslatorPreset } from '../translator/presets'
@@ -440,16 +440,10 @@ export function setDatabase(data:Database){
     data.google.accessToken ??= ''
     data.google.projectId ??= ''
     data.genTime ??= 1
-    data.packerWriter ??= {
+    data.responseTransformer ??= {
         enabled: false,
-        packerPreset: '',
-        writerPreset: '',
-        rerollMode: 'writer',
-        startAfterReplies: 1,
-        logEnabled: false,
-        packetCacheSize: 40,
+        preset: '',
     }
-    data.packerWriter.startAfterReplies ??= 1
     data.promptSettings ??= {
         assistantPrefill: '',
         postEndInnerFormat: '',
@@ -1145,8 +1139,8 @@ export interface Database{
     enableCustomFlags: boolean
     googleClaudeTokenizing: boolean
     presetChain: string
-    /** Packer–Writer pipeline. Presets are referenced by name and applied per stage. */
-    packerWriter?: PackerWriterSettings
+    /** Optional second model pass that rewrites the completed response. */
+    responseTransformer?: ResponseTransformerSettings
     legacyMediaFindings?:boolean
     geminiStream?:boolean
     assetMaxDifference:number
@@ -1606,10 +1600,9 @@ export interface groupChat{
 
 export interface botPreset{
     name?:string
-    /** Packer/Writer role tick. The two are mutually exclusive by design. */
-    pwRole?: PackerWriterRole|null
-    /** Role prompt, shown in preset settings only once a role is ticked. */
-    pwPrompt?: string
+    transformerEnabled?: boolean
+    transformerPrompt?: string
+    useStreaming?: boolean
     apiType?: string
     openAIKey?: string
     localNetworkMode?: boolean
@@ -1901,14 +1894,10 @@ export interface MessageGenerationInfo{
         stage3?: number
         stage4?: number
     }
-    /** Packer–Writer: the packet this reply was rendered from, plus its identity. */
-    packerPacket?: string
-    packerHistoryHash?: string
-    packerPresetName?: string
-    writerPresetName?: string
-    packerPromptHash?: string
-    /** Whether this generation actually used the packer/history-compaction path. */
-    packerActive?: boolean
+    transformerApplied?: boolean
+    transformerPresetName?: string
+    transformerModel?: string
+    transformerError?: string
 }
 
 export interface MessagePresetInfo{
@@ -2054,7 +2043,8 @@ export const presetTemplate:botPreset = {
     },
     top_p: 1,
     useInstructPrompt: false,
-    verbosity: 1
+    verbosity: 1,
+    useStreaming: true,
 }
 
 const defaultSdData:[string,string][] = [
@@ -2080,8 +2070,9 @@ export function saveCurrentPreset(){
     }
     const savedPreset:botPreset =  {
         name: pres[db.botPresetsId].name,
-        pwRole: pres[db.botPresetsId].pwRole ?? null,
-        pwPrompt: pres[db.botPresetsId].pwPrompt ?? '',
+        transformerEnabled: pres[db.botPresetsId].transformerEnabled ?? false,
+        transformerPrompt: pres[db.botPresetsId].transformerPrompt ?? '',
+        useStreaming: db.useStreaming,
         apiType: db.apiType,
         openAIKey: db.openAIKey,
         localNetworkMode: db.localNetworkMode,
@@ -2230,6 +2221,7 @@ export function setPreset(db:Database, newPres: botPreset){    db.apiType = newP
     db.mainPrompt = newPres.mainPrompt ?? db.mainPrompt
     db.jailbreak = newPres.jailbreak ?? db.jailbreak
     db.globalNote = newPres.globalNote ?? db.globalNote
+    db.useStreaming = newPres.useStreaming ?? db.useStreaming
     db.temperature = newPres.temperature ?? db.temperature
     db.maxContext = newPres.maxContext ?? db.maxContext
     db.maxResponse = newPres.maxResponse ?? db.maxResponse
